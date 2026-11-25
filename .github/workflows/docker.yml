@@ -45,7 +45,9 @@ jobs:
         run: |
           docker build -t oh-smoke --platform linux/amd64 .
           docker run --rm --entrypoint /usr/local/bin/offerhound oh-smoke doctor --live
-          docker run --rm -d --name oh-serve --platform linux/amd64 oh-smoke
+          docker run -d --name oh-serve --platform linux/amd64 oh-smoke
           sleep 3
-          docker exec oh-serve /usr/local/bin/offerhound doctor --probe http://127.0.0.1:8090/api/users
+          docker exec oh-serve /usr/local/bin/offerhound doctor --probe http://127.0.0.1:8090/api/users || {
+            echo "---- oh-serve logs ----"; docker logs oh-serve; exit 1;
+          }
           docker rm -f oh-serve

@@ -19,6 +19,15 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestOpenCreatesMissingParentDir(t *testing.T) {
+	// fresh Docker volume: ~/.offerhound does not exist yet
+	s, err := Open(filepath.Join(t.TempDir(), "nested", "deeper", "offers.db"))
+	if err != nil {
+		t.Fatalf("serve on a cold volume must not die: %v", err)
+	}
+	s.Close()
+}
+
 func sampleOffers(bank string) []offer.Offer {
 	return []offer.Offer{
 		{ID: "1", Bank: bank, CardLabel: "Venture X …1234", Merchant: "Chewy",
