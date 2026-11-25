@@ -141,7 +141,8 @@ func Preflight(o PreflightOpts) []Check {
 		if err := launchProbe(); err != nil {
 			checks = append(checks, fail("launch", "headless launch probe failed: "+err.Error(),
 				"common causes: missing shared libs (install chromium deps), shm too small "+
-					"(docker run --shm-size=256m), sandbox (see sandbox check)"))
+					"(docker run --shm-size=256m), sandbox (see sandbox check), HOME not writable "+
+					"(chrome_crashpad_handler --database error => the image's /data must be owned by the run user)"))
 		} else {
 			checks = append(checks, ok("launch", "headless chromium launched, evaluated JS, exited clean"))
 		}

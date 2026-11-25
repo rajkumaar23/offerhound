@@ -19,9 +19,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 10001 offerhound
+# /data is the VOLUME: create it owned, else non-root can't write HOME on
+# runs without a volume mount (Debian chromium's crashpad then dies with
+# "chrome_crashpad_handler: --database is required")
+RUN mkdir -p /data && chown offerhound:offerhound /data
 ENV HOME=/data
 # containers usually lack unprivileged user namespaces; chromium needs this
-ENV OFFERHOUND_BROWSER_FLAGS=--no-sandbox,--disable-dev-shm-usage
+ENV OFFERHOUND_BROWSER_FLAGS=--no-sandbox,--disable-dev-shm-usage,--crash-dumps-dir=/tmp/offerhound-crash
 COPY --from=build /out/offerhound /usr/local/bin/offerhound
 
 USER offerhound
