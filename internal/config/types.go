@@ -163,7 +163,6 @@ const (
 	StepReload       StepType = "reload"
 	StepFetchAPI     StepType = "fetchApi"
 	StepHuman        StepType = "human"
-	StepScreenshot   StepType = "screenshot"
 )
 
 // Step is one tagged union member. Exactly one kind should be set;
@@ -178,7 +177,6 @@ type Step struct {
 	Reload       *bool         `yaml:"-"`
 	FetchAPI     *FetchAPISpec `yaml:"-"`
 	Human        *HumanSpec    `yaml:"-"`
-	Screenshot   *string       `yaml:"-"`
 }
 
 // stepYAML is the flat wire form; fetchApi fields live at the same level as
@@ -201,7 +199,6 @@ type stepYAML struct {
 	Extract      *Extract          `yaml:"extract"`
 	Cards        *CardsSpec        `yaml:"cards"`
 	Human        *HumanSpec        `yaml:"human"`
-	Screenshot   *string           `yaml:"screenshot"`
 }
 
 func (s *Step) UnmarshalYAML(value *yaml.Node) error {
@@ -211,7 +208,7 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 	}
 	s.Navigate, s.WaitSelector, s.WaitNotVis = y.Navigate, y.WaitSelector, y.WaitNotVis
 	s.Click, s.Fill, s.Sleep, s.Reload = y.Click, y.Fill, y.Sleep, y.Reload
-	s.Human, s.Screenshot = y.Human, y.Screenshot
+	s.Human = y.Human
 	if y.FetchAPI != "" || y.SaveAs != "" || y.Each != nil || y.Extract != nil {
 		if y.FetchAPI == "" {
 			return fmt.Errorf("fetchApi steps require fetchApi URL")
@@ -242,7 +239,6 @@ func (s *Step) Types() []StepType {
 	add(StepReload, s.Reload != nil)
 	add(StepFetchAPI, s.FetchAPI != nil)
 	add(StepHuman, s.Human != nil)
-	add(StepScreenshot, s.Screenshot != nil)
 	return out
 }
 

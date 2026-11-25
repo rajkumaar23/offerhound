@@ -1,11 +1,19 @@
-/* offerhound UI — no frameworks, phone-first. */
+/* offerhound UI — no frameworks, phone-first. The server is a dumb store:
+   this page only reads. A wallet dropdown switches between users. */
 const $ = (s) => document.querySelector(s);
-const state = { q: "", channel: "", status: "", bank: "", timer: null };
+const state = {
+  q: "", channel: "", status: "", bank: "", timer: null,
+  user: localStorage.getItem("oh-user") || "default",
+};
 
-async function api(path, opts) {
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+function api(path, params = {}) {
+  const qs = new URLSearchParams(params);
+  if (state.user) qs.set("user", state.user);
+  const sep = path.includes("?") ? "&" : "?";
+  return fetch(`${path}${qs.toString() ? sep + qs : ""}`).then((r) => {
+    if (!r.ok) throw new Error(r.status + " " + path);
+    return r.json();
+  });
 }
 
 function esc(s) {
@@ -19,19 +27,18 @@ function daysLeft(iso) {
 }
 
 async function renderResults() {
-  const params = new URLSearchParams();
-  if (state.q) params.set("q", state.q);
-  if (state.channel) params.set("channel", state.channel);
-  if (state.status) params.set("status", state.status);
-  if (state.bank) params.set("bank", state.bank);
   let offers = [];
-  try { offers = await api("/api/search?" + params); } catch (e) { console.error(e); }
+  try {
+    offers = await api("/api/search", {
+      q: state.q, channel: state.channel, status: state.status, bank: state.bank,
+    });
+  } catch (e) { console.error(e); }
   $("#meta").textContent = offers.length
     ? `${offers.length} offer${offers.length === 1 ? "" : "s"} — tap any for the fine print`
     : "";
   if (!offers.length) {
-    $("#results").innerHTML = `<div class="empty">No matching offers.<br>
-      Try a looser term — or run a sync first.</div>`;
+    $("#results").innerHTML = `<div class="empty">No matching offers in this wallet.<br>
+      Try a looser term, another wallet, or run a sync from your client.</div>`;
     return;
   }
   $("#results").innerHTML = offers.map((o, i) => {
@@ -68,13 +75,27 @@ function openSheet(o) {
   $("#sheet").classList.remove("hidden");
 }
 
+async function renderUsers() {
+  let users = [];
+  try { users = await fetch("/api/users").then((r) => r.json()); } catch (e) { return; }
+  if (!users.length) users = ["default"];
+  if (!users.includes(state.user)) state.user = users[0];
+  const sel = $("#userSel");
+  sel.innerHTML = users.map((u) =>
+    `<option ${u === state.user ? "selected" : ""}>${esc(u)}</option>`).join("");
+  sel.onchange = () => {
+    state.user = sel.value;
+    localStorage.setItem("oh-user", state.user);
+    renderAll();
+  };
+}
+
 async function renderBanks() {
   let banks = [];
   try { banks = await api("/api/banks"); } catch (e) { return; }
   $("#banks").innerHTML = banks.map((b) =>
     `<span class="bank"><span class="dot ${esc(b.status)}"></span>${esc(b.name)}:
-     ${b.lastSync ? esc(shortAgo(b.lastSync)) : "never"}
-     <button class="run" data-run="${esc(b.key)}">run</button></span>`).join("");
+     ${b.lastSync ? esc(shortAgo(b.lastSync)) : "never"}</span>`).join("");
   const chips = ["<button class='chip on' data-bank=''>All banks</button>"]
     .concat(banks.map((b) =>
       `<button class="chip" data-bank="${esc(b.key)}">${esc(b.name)}</button>`));
@@ -83,11 +104,6 @@ async function renderBanks() {
     state.bank = el.dataset.bank;
     document.querySelectorAll("[data-bank]").forEach((x) => x.classList.toggle("on", x === el));
     renderResults();
-  }));
-  document.querySelectorAll("[data-run]").forEach((el) => el.addEventListener("click", async () => {
-    el.disabled = true; el.textContent = "…";
-    try { await api("/api/sync", { method: "POST", body: JSON.stringify({ bank: el.dataset.run }) }); el.textContent = "queued"; }
-    catch (err) { el.textContent = "err"; }
   }));
 }
 
@@ -105,29 +121,39 @@ async function pollHuman() {
       const r = reqs[0];
       $("#needsyou").classList.remove("hidden");
       $("#needsyou").innerHTML = `🖐️ <b>${esc(r.bank)}</b> needs you: ${esc(r.prompt)}
-        <button class="run" id="openHuman">answer</button>`;
+        <button class="chip" id="openHuman">answer</button>`;
       $("#openHuman").onclick = () => showHuman(r);
     } else {
       $("#needsyou").classList.add("hidden");
       $("#humanSheet").classList.add("hidden");
     }
-  } catch (e) { /* offline / unauthorized */ }
+  } catch (e) { /* transient */ }
 }
 
 function showHuman(r) {
   $("#humanPrompt").textContent = r.prompt;
-  const shot = $("#humanShot");
-  shot.classList.add("hidden"); // screenshot served via API when needed
   $("#humanAnswer").value = "";
   $("#humanSheet").classList.remove("hidden");
   $("#humanSend").onclick = async () => {
     const answer = $("#humanAnswer").value.trim();
     if (!answer) return;
     try {
-      await api(`/api/human/${r.id}/answer`, { method: "POST", body: JSON.stringify({ answer }) });
+      const res = await fetch(`/api/human/${r.id}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
       $("#humanSheet").classList.add("hidden");
+      pollHuman();
     } catch (e) { alert("already answered? " + e.message); }
   };
+}
+
+function renderAll() {
+  renderResults();
+  renderBanks();
+  pollHuman();
 }
 
 $("#q").addEventListener("input", (e) => {
@@ -148,8 +174,6 @@ document.querySelectorAll("[data-status]").forEach((el) => el.addEventListener("
 $("#sheetClose").onclick = () => $("#sheet").classList.add("hidden");
 $("#sheet").onclick = (e) => { if (e.target.id === "sheet") $("#sheet").classList.add("hidden"); };
 
-renderResults();
-renderBanks();
-pollHuman();
+renderUsers().then(renderAll);
 setInterval(pollHuman, 5000);
 setInterval(renderBanks, 30000);

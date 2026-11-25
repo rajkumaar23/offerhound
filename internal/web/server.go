@@ -1,12 +1,26 @@
-// Package web serves the offerhound UI and JSON API.
+// Package web serves the offerhound UI (single page, phone-first) and the
+// JSON API.
+//
+// The server is deliberately dumb: it stores what clients push and renders
+// it. No scheduler, no job queue, no run bookkeeping — clients (cron,
+// manual `offerhound sync`, CI) decide when to send data.
+//
+// Auth model:
+//   - GETs are OPEN by design. Collected card offers mirror public
+//     marketing data; the `user` selector is a scoping key, not a secret.
+//     The only read exception is answer delivery for human prompts, which
+//     carries OTP codes and is token-gated.
+//   - POSTs require X-Offerhound-Token whose SHA-256 hash matches the
+//     configured hash (constant-time compare). Clients hold the plaintext
+//     token; the server can run on only the hash (--token-hash) so a
+//     server-side leak never exposes the token.
+//   - No screenshots or page artifacts ever pass through this layer.
 package web
 
 import (
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -25,62 +39,51 @@ var static embed.FS
 
 // Server hosts the UI + API over a Store.
 type Server struct {
-	Store *store.Store
-	Token string // required on /api writes (and all routes off-loopback)
+	Store     *store.Store
+	tokenHash string // hex SHA-256; empty => writes open (single-user LAN)
 }
 
-// New builds a server.
+// New builds a server from a plaintext token (hashed immediately; the
+// plaintext is not retained).
 func New(s *store.Store, token string) *Server {
-	return &Server{Store: s, Token: token}
+	hash := ""
+	if token != "" {
+		hash = store.TokenHash(token)
+	}
+	return &Server{Store: s, tokenHash: hash}
+}
+
+// NewWithHash builds a server from a pre-computed hex SHA-256 token hash,
+// so the plaintext token never touches the server's config or memory.
+func NewWithHash(s *store.Store, tokenHash string) *Server {
+	return &Server{Store: s, tokenHash: strings.TrimSpace(tokenHash)}
 }
 
 // Handler returns the routed handler (usable in httptest).
 func (sv *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	// reads: open (offer data is not private info)
 	mux.HandleFunc("GET /{$}", sv.pageIndex)
 	mux.HandleFunc("GET /assets/{name}", sv.serveAsset)
-	mux.HandleFunc("GET /api/search", sv.authRead(sv.apiSearch))
-	mux.HandleFunc("GET /api/banks", sv.authRead(sv.apiBanks))
-	mux.HandleFunc("GET /api/human", sv.authRead(sv.apiHumanPending))
-	mux.HandleFunc("POST /api/human/{id}/answer", sv.authWrite(sv.apiHumanAnswer))
-	mux.HandleFunc("POST /api/sync", sv.authWrite(sv.apiSync))
-	// collector-side endpoints
+	mux.HandleFunc("GET /api/users", sv.apiUsers)
+	mux.HandleFunc("GET /api/search", sv.apiSearch)
+	mux.HandleFunc("GET /api/banks", sv.apiBanks)
+	mux.HandleFunc("GET /api/human", sv.apiHumanPending)
+	// reads that carry secrets: token-gated
+	mux.HandleFunc("GET /api/human/answers", sv.authWrite(sv.apiHumanAnswers))
+	// writes: token-gated — EXCEPT the human answer post (see below)
 	mux.HandleFunc("POST /api/ingest", sv.authWrite(sv.apiIngest))
-	mux.HandleFunc("POST /api/runs", sv.authWrite(sv.apiStartRun))
-	mux.HandleFunc("POST /api/runs/{id}/finish", sv.authWrite(sv.apiFinishRun))
-	mux.HandleFunc("GET /api/jobs", sv.authWrite(sv.apiJobsPoll))
-	mux.HandleFunc("POST /api/jobs/{id}/complete", sv.authWrite(sv.apiJobComplete))
 	mux.HandleFunc("POST /api/human", sv.authWrite(sv.apiAskHuman))
+	mux.HandleFunc("POST /api/bank/status", sv.authWrite(sv.apiBankStatus))
+	mux.HandleFunc("POST /api/human/{id}/answer", sv.apiHumanAnswer) // the human has no token
 	return mux
 }
 
 // --- auth ----------------------------------------------------------------
 
-func (sv *Server) authed(r *http.Request) bool {
-	if r.Header.Get("X-Offerhound-Token") == sv.Token {
-		return true
-	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return host == "127.0.0.1" || host == "::1"
-}
-
-func (sv *Server) authRead(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !sv.authed(r) {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
-}
-
 func (sv *Server) authWrite(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if sv.Token != "" && r.Header.Get("X-Offerhound-Token") != sv.Token {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		if sv.Token == "" && !sv.authed(r) {
+		if sv.tokenHash != "" && !store.TokenHashMatches(sv.tokenHash, r.Header.Get("X-Offerhound-Token")) {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -134,9 +137,22 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+func (sv *Server) apiUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := sv.Store.Users()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if users == nil {
+		users = []string{}
+	}
+	jsonOut(w, users)
+}
+
 func (sv *Server) apiSearch(w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	res, err := sv.Store.Search(store.Query{
+		User:    qs.Get("user"),
 		Text:    qs.Get("q"),
 		Bank:    qs.Get("bank"),
 		Status:  qs.Get("status"),
@@ -154,7 +170,7 @@ func (sv *Server) apiSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (sv *Server) apiBanks(w http.ResponseWriter, r *http.Request) {
-	rows, err := sv.Store.Banks()
+	rows, err := sv.Store.Banks(r.URL.Query().Get("user"))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -165,6 +181,8 @@ func (sv *Server) apiBanks(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, rows)
 }
 
+// apiIngest is THE write path: a client pushes everything it collected for
+// one (user, bank) whenever it feels like it.
 func (sv *Server) apiIngest(w http.ResponseWriter, r *http.Request) {
 	var req engine.IngestReq
 	if !decode(w, r, &req) {
@@ -174,11 +192,11 @@ func (sv *Server) apiIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad bank id", http.StatusBadRequest)
 		return
 	}
-	if err := sv.Store.EnsureBank(req.Bank, req.Bank); err != nil {
+	if err := sv.Store.EnsureBank(req.User, req.Bank, req.Bank); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	err := sv.Store.Ingest(req.Bank, req.Cards, req.Offers, req.Complete, req.Note)
+	err := sv.Store.Ingest(req.User, req.Bank, req.Cards, req.Offers, req.Complete, req.Note)
 	if errors.Is(err, store.ErrPartialRejected) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -190,101 +208,41 @@ func (sv *Server) apiIngest(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, map[string]any{"ok": true, "ingested": len(req.Offers)})
 }
 
-func (sv *Server) apiStartRun(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Bank, Worker string }
+// apiBankStatus lets a client report outcomes (needs_you / error) next to
+// a bank without ingesting data.
+func (sv *Server) apiBankStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct{ User, Bank, Status, Note string }
 	if !decode(w, r, &body) {
 		return
 	}
-	if err := sv.Store.EnsureBank(body.Bank, body.Bank); err != nil {
-		http.Error(w, err.Error(), 500)
+	if !bankIDRe.MatchString(body.Bank) || body.Status == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	id, err := sv.Store.StartRun(body.Bank, body.Worker)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	jsonOut(w, map[string]any{"runId": id})
-}
-
-func (sv *Server) apiFinishRun(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	var body struct {
-		Status     string `json:"status"`
-		Error      string `json:"error"`
-		OfferCount int    `json:"offerCount"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	if err := sv.Store.FinishRun(id, body.Status, body.Error, body.OfferCount); err != nil {
+	if err := sv.Store.SetBankStatus(body.User, body.Bank, body.Status, body.Note); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	jsonOut(w, map[string]any{"ok": true})
 }
 
-func (sv *Server) apiJobsPoll(w http.ResponseWriter, r *http.Request) {
-	qs := r.URL.Query()
-	worker := qs.Get("worker")
-	var banks []string
-	for _, b := range qs["banks"] {
-		if bankIDRe.MatchString(b) {
-			banks = append(banks, b)
-		}
-	}
-	var waiting []int64
-	for _, s := range qs["waiting"] {
-		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-			waiting = append(waiting, id)
-		}
-	}
-	answers, err := sv.Store.AnswersFor(waiting)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	job, err := sv.Store.ClaimJob(worker, banks)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	jsonOut(w, map[string]any{"job": job, "answers": answers})
-}
-
-func (sv *Server) apiJobComplete(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	var body struct{ Status, Error string }
-	if !decode(w, r, &body) {
-		return
-	}
-	if err := sv.Store.CompleteJob(id, body.Status, body.Error); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	jsonOut(w, map[string]any{"ok": true})
-}
-
+// apiAskHuman stores only the config-authored prompt string. Screenshots
+// are deliberately not accepted: bank pages can show names, partial
+// account numbers or balances, and no PII belongs in this database.
 func (sv *Server) apiAskHuman(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RunID         int64  `json:"runId"`
-		Bank          string `json:"bank"`
-		Prompt        string `json:"prompt"`
-		ScreenshotB64 string `json:"screenshotB64"`
+		User   string `json:"user"`
+		Bank   string `json:"bank"`
+		Prompt string `json:"prompt"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	var shot []byte
-	if body.ScreenshotB64 != "" {
-		var err error
-		shot, err = base64.StdEncoding.DecodeString(body.ScreenshotB64)
-		if err != nil {
-			http.Error(w, "bad screenshot", http.StatusBadRequest)
-			return
-		}
+	if !bankIDRe.MatchString(body.Bank) || strings.TrimSpace(body.Prompt) == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
 	}
-	id, err := sv.Store.AskHuman(body.RunID, body.Bank, body.Prompt, shot)
+	id, err := sv.Store.AskHuman(body.User, body.Bank, body.Prompt)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -292,8 +250,9 @@ func (sv *Server) apiAskHuman(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, map[string]any{"id": id})
 }
 
+// apiHumanPending feeds the UI's needs-you banner (open).
 func (sv *Server) apiHumanPending(w http.ResponseWriter, r *http.Request) {
-	rows, err := sv.Store.PendingHuman()
+	rows, err := sv.Store.PendingHuman(r.URL.Query().Get("user"))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -304,6 +263,29 @@ func (sv *Server) apiHumanPending(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, rows)
 }
 
+// apiHumanAnswers delivers OTP answers to the waiting client. Token-gated:
+// answers are codes, not marketing data.
+func (sv *Server) apiHumanAnswers(w http.ResponseWriter, r *http.Request) {
+	var ids []int64
+	for _, s := range r.URL.Query()["waiting"] {
+		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	answers, err := sv.Store.AnswersFor(ids)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if answers == nil {
+		answers = []store.Answer{}
+	}
+	jsonOut(w, answers)
+}
+
+// apiHumanAnswer is the one "write" the human on the phone makes — the
+// human has no token, so this stays open (answer values are OTP codes the
+// human already possesses; worst abuse is burning a pending prompt).
 func (sv *Server) apiHumanAnswer(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	var body struct{ Answer string }
@@ -320,23 +302,6 @@ func (sv *Server) apiHumanAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, map[string]any{"ok": true})
-}
-
-func (sv *Server) apiSync(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Bank string }
-	if !decode(w, r, &body) {
-		return
-	}
-	if !bankIDRe.MatchString(body.Bank) {
-		http.Error(w, "bad bank id", http.StatusBadRequest)
-		return
-	}
-	id, err := sv.Store.EnqueueJob(body.Bank)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	jsonOut(w, map[string]any{"queued": id})
 }
 
 func atoiDefault(s string, def int) int {

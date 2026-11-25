@@ -316,11 +316,9 @@ func (r *Runner) runSteps(ctx context.Context, steps []config.Step) error {
 			if r.Gate == nil {
 				return fmt.Errorf("human step requires a gate (run headfully or wire --server)")
 			}
-			var shot []byte
-			if png, err := r.Browser.Screenshot(ctx); err == nil {
-				shot = png
-			}
-			answer, err := r.Gate.Ask(ctx, r.Bank.ID, s.Human.Prompt, shot, s.Human.Timeout.Dur())
+			// Prompt text only — the browser page is never captured or
+			// relayed (bank screens carry account PII).
+			answer, err := r.Gate.Ask(ctx, r.Bank.ID, s.Human.Prompt, s.Human.Timeout.Dur())
 			if err != nil {
 				return fmt.Errorf("human step: %w", err)
 			}
@@ -334,10 +332,6 @@ func (r *Runner) runSteps(ctx context.Context, steps []config.Step) error {
 						return fmt.Errorf("human submit: %w", err)
 					}
 				}
-			}
-		case s.Screenshot != nil:
-			if _, err := r.Browser.Screenshot(ctx); err != nil {
-				r.logf("screenshot failed: %v", err)
 			}
 		default:
 			return fmt.Errorf("steps[%d]: unsupported step in login flow", i)

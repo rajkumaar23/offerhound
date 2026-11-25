@@ -117,8 +117,7 @@ server, a VM with Chrome); the phone needs the UI from *somewhere always up*
 
 ## 3. The DSL
 
-One YAML file per bank (lives in the separate **offerhound-configs** repo;
-`--configs` dir or embedded defaults). Shape: tagged polymorphic steps with
+One YAML file per bank (drop-in `--configs` dir; examples in `docs/examples/`). Shape: tagged polymorphic steps with
 up-front validation, so configs fail loudly in CI instead of silently in
 production.
 
@@ -314,9 +313,8 @@ pattern (token-authed local POST /api/ingest) so external collectors
   `goreleaser` for multi-arch binaries, conventional commits, `go.mod` with
   only: `chromedp`, `modernc.org/sqlite`, `yaml.v3`, `robfig/cron/v3`,
   `spf13/cobra`, `tidwall/gjson` (jsonpath), `99designs/keyring`.
-- **offerhound-configs**: `banks/*.yaml` + fixtures + schema docs. Engine
-  pins compatible schema versions; `offerhound verify banks/` runs in that
-  repo's CI so community configs can't merge broken.
+- **This repo**: engine + `docs/examples/` configs + schema docs.
+  `offerhound verify docs/examples` runs in CI so configs can't merge broken.
 
 ## 9. Roadmap
 

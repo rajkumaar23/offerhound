@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +15,9 @@ import (
 	"github.com/rajkumaar23/offerhound/internal/store"
 )
 
-// Client talks to an offerhound serve instance (split mode: the browser
-// host pushes to wherever the UI lives).
+// Client talks to an offerhound serve instance. The server is dumb: this
+// client pushes whenever it wants (cron, manual sync). Writes carry the
+// plaintext token; the server stores only its hash.
 type Client struct {
 	Base  string
 	Token string
@@ -64,6 +64,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 
 // IngestReq is the payload for POST /api/ingest.
 type IngestReq struct {
+	User     string        `json:"user"`
 	Bank     string        `json:"bank"`
 	Worker   string        `json:"worker"`
 	Complete bool          `json:"complete"`
@@ -72,89 +73,65 @@ type IngestReq struct {
 	Offers   []offer.Offer `json:"offers"`
 }
 
-// Ingest pushes a completed (or partial) collection to the server.
+// Ingest pushes a completed (or partial) collection into one wallet.
 func (c *Client) Ingest(ctx context.Context, req IngestReq) error {
 	return c.do(ctx, "POST", "/api/ingest", req, nil)
 }
 
-// StartRun registers a run on the server and returns its id.
-func (c *Client) StartRun(ctx context.Context, bank, worker string) (int64, error) {
-	var out struct {
-		RunID int64 `json:"runId"`
-	}
-	err := c.do(ctx, "POST", "/api/runs", map[string]string{"bank": bank, "worker": worker}, &out)
-	return out.RunID, err
-}
-
-// FinishRun closes a run on the server.
-func (c *Client) FinishRun(ctx context.Context, id int64, status, errMsg string, count int) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/runs/%d/finish", id),
-		map[string]any{"status": status, "error": errMsg, "offerCount": count}, nil)
-}
-
-// PollResult carries the next claimed job plus any human answers.
-type PollResult struct {
-	Job     *store.Job     `json:"job"`
-	Answers []store.Answer `json:"answers"`
-}
-
-// PollJobs claims a job for this worker and delivers human answers.
-func (c *Client) PollJobs(ctx context.Context, worker string, banks []string, waiting []int64) (*PollResult, error) {
-	q := url.Values{"worker": {worker}}
-	for _, b := range banks {
-		q.Add("banks", b)
-	}
-	for _, id := range waiting {
-		q.Add("waiting", fmt.Sprint(id))
-	}
-	var out PollResult
-	err := c.do(ctx, "GET", "/api/jobs?"+q.Encode(), nil, &out)
-	return &out, err
-}
-
-// CompleteJob reports a job's outcome.
-func (c *Client) CompleteJob(ctx context.Context, id int64, status, errMsg string) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/jobs/%d/complete", id),
-		map[string]string{"status": status, "error": errMsg}, nil)
+// SetBankStatus reports a client-side outcome (needs_you, error).
+func (c *Client) SetBankStatus(ctx context.Context, user, bank, status, note string) error {
+	return c.do(ctx, "POST", "/api/bank/status", map[string]string{
+		"user": user, "bank": bank, "status": status, "note": note,
+	}, nil)
 }
 
 // AskHumanRemote registers a 2FA prompt on the server (surfaced in the UI).
-func (c *Client) AskHumanRemote(ctx context.Context, runID int64, bank, prompt string, screenshot []byte) (int64, error) {
+// Only the config-authored prompt text is sent — never screenshots or page
+// content, which could carry account PII.
+func (c *Client) AskHumanRemote(ctx context.Context, user, bank, prompt string) (int64, error) {
 	var out struct {
 		ID int64 `json:"id"`
 	}
 	err := c.do(ctx, "POST", "/api/human", map[string]any{
-		"runId": runID, "bank": bank, "prompt": prompt,
-		"screenshotB64": base64.StdEncoding.EncodeToString(screenshot),
+		"user": user, "bank": bank, "prompt": prompt,
 	}, &out)
 	return out.ID, err
 }
 
-// ServerGate implements Gate by relaying to the serve instance and polling
-// for the human's answer through the jobs poll (outbound-only).
+// Answers fetches delivered answers for the given request ids.
+func (c *Client) Answers(ctx context.Context, ids []int64) ([]store.Answer, error) {
+	q := url.Values{}
+	for _, id := range ids {
+		q.Add("waiting", fmt.Sprint(id))
+	}
+	var out []store.Answer
+	err := c.do(ctx, "GET", "/api/human/answers?"+q.Encode(), nil, &out)
+	return out, err
+}
+
+// ServerGate implements Gate by relaying prompts to the serve instance and
+// polling for the human's answer (outbound-only).
 type ServerGate struct {
 	Client *Client
-	RunID  int64
-	Worker string
-	Banks  []string
+	User   string
 	Poll   time.Duration
 }
 
-func (g *ServerGate) Ask(ctx context.Context, bank, prompt string, screenshot []byte, timeout time.Duration) (string, error) {
+func (g *ServerGate) Ask(ctx context.Context, bank, prompt string, timeout time.Duration) (string, error) {
 	if g.Poll == 0 {
 		g.Poll = 3 * time.Second
 	}
-	id, err := g.Client.AskHumanRemote(ctx, g.RunID, bank, prompt, screenshot)
+	id, err := g.Client.AskHumanRemote(ctx, g.User, bank, prompt)
 	if err != nil {
 		return "", err
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		pr, err := g.Client.PollJobs(ctx, g.Worker, g.Banks, []int64{id})
+		answers, err := g.Client.Answers(ctx, []int64{id})
 		if err != nil {
 			return "", err
 		}
-		for _, a := range pr.Answers {
+		for _, a := range answers {
 			if a.ID == id {
 				return a.Answer, nil
 			}

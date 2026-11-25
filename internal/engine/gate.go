@@ -11,25 +11,26 @@ import (
 )
 
 // Gate pauses a run for a human (SMS/push/captcha). Implementations: CLI
-// stdin prompt, web UI (via store), or remote worker relay.
+// stdin prompt, web UI (via store), or remote relay.
 type Gate interface {
 	// Ask blocks until a human answers, the timeout fires, or ctx cancels.
-	// The latest screenshot (may be nil) helps the human decide.
-	Ask(ctx context.Context, bank, prompt string, screenshot []byte, timeout time.Duration) (string, error)
+	// Only the config-authored prompt string is relayed — never page
+	// content, which could carry account PII.
+	Ask(ctx context.Context, bank, prompt string, timeout time.Duration) (string, error)
 }
 
-// StoreGate blocks on a store-backed human request (works for local runs
-// and, with a polling worker, across machines).
+// StoreGate blocks on a store-backed human request (local single-machine
+// runs; remote runs use ServerGate in client.go).
 type StoreGate struct {
 	Store *store.Store
-	RunID int64
+	User  string
 }
 
-func (g *StoreGate) Ask(ctx context.Context, bank, prompt string, screenshot []byte, timeout time.Duration) (string, error) {
-	if g.Store == nil || g.RunID == 0 {
-		return "", fmt.Errorf("gate: no store run context")
+func (g *StoreGate) Ask(ctx context.Context, bank, prompt string, timeout time.Duration) (string, error) {
+	if g.Store == nil {
+		return "", fmt.Errorf("gate: no store context")
 	}
-	id, err := g.Store.AskHuman(g.RunID, bank, prompt, screenshot)
+	id, err := g.Store.AskHuman(g.User, bank, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -39,7 +40,7 @@ func (g *StoreGate) Ask(ctx context.Context, bank, prompt string, screenshot []b
 // StdinGate prompts on the terminal — headful single-machine UX.
 type StdinGate struct{}
 
-func (StdinGate) Ask(_ context.Context, _, prompt string, _ []byte, _ time.Duration) (string, error) {
+func (StdinGate) Ask(_ context.Context, _, prompt string, _ time.Duration) (string, error) {
 	fmt.Printf("\n🐕 offerhound needs you: %s\n> ", prompt)
 	var answer string
 	if _, err := fmt.Scanln(&answer); err != nil {

@@ -9,7 +9,10 @@
 </head>
 <body>
 <header>
-  <div class="brand">🐕 <strong>offerhound</strong></div>
+  <div class="brandrow">
+    <div class="brand">🐕 <strong>offerhound</strong></div>
+    <select id="userSel" class="usersel" aria-label="Wallet"></select>
+  </div>
   <div id="banks" class="banks"></div>
 </header>
 
@@ -49,7 +52,6 @@
   <div class="sheet-inner">
     <div class="sheet-grab"></div>
     <h2 id="humanPrompt"></h2>
-    <img id="humanShot" alt="bank screen" class="hidden">
     <input id="humanAnswer" inputmode="numeric" autocomplete="one-time-code"
            placeholder="Enter code / answer">
     <button id="humanSend" class="btn primary">Send answer</button>

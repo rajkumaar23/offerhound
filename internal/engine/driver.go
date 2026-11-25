@@ -22,7 +22,6 @@ type Browser interface {
 	WaitFor(ctx context.Context, sel, jsPath string, mustExist bool, timeout time.Duration) error
 	Click(ctx context.Context, sel, jsPath string, trusted bool, timeout time.Duration) error
 	Fill(ctx context.Context, sel, jsPath, value string) error
-	Screenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
 	Close()
 }
@@ -174,17 +173,6 @@ func (b *cdpBrowser) Fill(ctx context.Context, sel, jsPath, value string) error 
 	})()`, targetJS(sel, jsPath), quote(value))
 	_, err := b.EvaluateJSON(ctx, expr)
 	return err
-}
-
-func (b *cdpBrowser) Screenshot(ctx context.Context) ([]byte, error) {
-	if err := b.ensureTab(ctx); err != nil {
-		return nil, err
-	}
-	var png []byte
-	if err := chromedp.Run(b.tab, chromedp.CaptureScreenshot(&png)); err != nil {
-		return nil, err
-	}
-	return png, nil
 }
 
 func (b *cdpBrowser) CurrentURL(ctx context.Context) (string, error) {

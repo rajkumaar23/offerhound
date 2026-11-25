@@ -7,7 +7,7 @@ account-specific knowledge (endpoints, selectors, rate budgets) and must
 stay on your own machines. Everything in this repository's
 `docs/examples/` is synthetic and points at `*.example.test`.
 
-When contributing configs (to the `offerhound-configs` repo, coming soon):
+When contributing configs:
 
 1. Remove credentials — `env://`, `file://`, `keyring://` references only.
 2. Remove anything account-specific (IDs, hashes, personal URLs).
