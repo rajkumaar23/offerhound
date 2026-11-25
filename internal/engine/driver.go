@@ -61,7 +61,25 @@ func launch(b config.BrowserConfig) (Browser, error) {
 		chromedp.Flag("no-default-browser-check", true),
 		chromedp.Flag("no-first-run", true),
 	)
+	// Container escape hatches: CHROME_BIN pins the binary,
+	// OFFERHOUND_BROWSER_FLAGS appends extra Chromium flags
+	// (comma-separated, e.g. "--no-sandbox,--disable-dev-shm-usage" —
+	// the official Docker image ships with these two set).
+	if bin := os.Getenv("CHROME_BIN"); bin != "" {
+		if _, err := os.Stat(bin); err != nil {
+			return nil, fmt.Errorf("CHROME_BIN=%s is not readable: %w", bin, err)
+		}
+		opts = append(opts, chromedp.ExecPath(bin))
+	}
+	for name, value := range extraFlagsFromEnv() {
+		opts = append(opts, chromedp.Flag(name, value))
+	}
 	if !headless {
+		if _, noDisplay := displayMissing(); noDisplay {
+			return nil, fmt.Errorf("headful browser requested but no X display: " +
+				"set DISPLAY, run under xvfb-run (common in Docker/CI), set headless: true, " +
+				"or use mode: attach — run `offerhound doctor` for a full environment check")
+		}
 		opts = append(opts, chromedp.Flag("headless", false))
 	} else {
 		// new headless keeps the closest fingerprint to a real browser

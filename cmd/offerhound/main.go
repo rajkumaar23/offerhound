@@ -46,7 +46,7 @@ func main() {
 	root.PersistentFlags().StringVar(&flagUser, "user", store.DefaultUser,
 		"wallet this install populates (multi-user scoping key)")
 
-	root.AddCommand(cmdInit(), cmdVerify(), cmdSync(), cmdServe(), cmdSearch())
+	root.AddCommand(cmdInit(), cmdVerify(), cmdSync(), cmdServe(), cmdSearch(), cmdDoctor())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -296,6 +296,44 @@ func cmdSearch() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "eligible|enrolled")
 	cmd.Flags().StringVar(&channel, "channel", "", "in-store|online")
 	cmd.Flags().IntVar(&limit, "limit", 50, "max results")
+	return cmd
+}
+
+// cmdDoctor validates the environment before trusting it with a sync —
+// the difference between "chromium exited 1" and an actual answer.
+func cmdDoctor() *cobra.Command {
+	var live bool
+	var probe string
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Validate this environment (browser binary, display, sandbox, server)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			banks, _ := config.LoadDir(flagConfigs)
+			var list []config.Bank
+			for _, b := range banks {
+				list = append(list, *b)
+			}
+			checks := engine.Preflight(engine.PreflightOpts{
+				Banks: list, Live: live, HTTPProbe: probe,
+			})
+			if len(checks) == 0 {
+				fmt.Println("✅ environment looks good (no container, chromium found, headless-only banks)")
+			}
+			for _, c := range checks {
+				icon := map[string]string{"ok": "✅", "warn": "⚠️ ", "fail": "❌"}[c.Status]
+				fmt.Printf("%s %-16s %s\n", icon, c.Name, c.Detail)
+				if c.Hint != "" {
+					fmt.Printf("   ↳ %s\n", c.Hint)
+				}
+			}
+			if engine.PreflightFailed(checks) {
+				os.Exit(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&live, "live", false, "actually launch Chromium, run JS, and tear down")
+	cmd.Flags().StringVar(&probe, "probe", "", "URL that must answer 200 (serve healthcheck)")
 	return cmd
 }
 

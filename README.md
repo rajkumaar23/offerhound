@@ -16,6 +16,7 @@ only question that matters at the register or checkout:
 offerhound sync chase          # log in (headless or visible Chrome), collect
 offerhound search "target"     # best card across your whole wallet
 offerhound serve               # phone-friendly web UI on your LAN
+offerhound doctor              # validate browser/display/sandbox before a sync
 ```
 
 - **No bank code in the binary** — banks are YAML configs,
@@ -32,8 +33,12 @@ offerhound serve               # phone-friendly web UI on your LAN
   categories only. Bank sub-text lands in a `notes` field that is searchable
   and pops up as a bottom sheet on every offer card — never burn points on a
   misread rate again.
-- **Local-first** — SQLite store, credentials from env/keyring, UI bound to
-  localhost until you opt into LAN with a token.
+- **Local-first, multi-user by default** — SQLite store with per-wallet
+  `user` scoping; credentials only from env/file/keyring refs. The server is
+  deliberately dumb: clients push when they want. Reads are open (card
+  offers are marketing data); writes need `X-Offerhound-Token`, checked
+  against a SHA-256 hash — `serve --token-hash` keeps the plaintext off the
+  server entirely.
 
 ## Quick start
 
@@ -51,6 +56,38 @@ Bring your own bank configs: drop YAML files into `~/.offerhound/configs`
 
 Requires Google Chrome / Chromium on the host (or a CDP-reachable browser for
 `mode: attach`).
+
+## Docker
+
+```sh
+docker run -d --name offerhound -p 8090:8090 \
+  -v ~/.offerhound:/data \
+  ghcr.io/rajkumaar23/offerhound
+```
+
+The image serves the UI by default and *also* carries Chromium, so one-off
+syncs from cron work too:
+
+```sh
+docker run --rm -v ~/.offerhound:/data \
+  -e OH_EXAMPLEBANK_USER=... -e OH_EXAMPLEBANK_PASS=... \
+  ghcr.io/rajkumaar23/offerhound sync examplebank --configs /data/configs
+```
+
+**Headful automation in a container is guarded, not guessed.** `offerhound
+doctor` (wired in as the container `HEALTHCHECK`) validates the environment
+before anything bank-facing runs:
+
+| Capability | In the container | Notes |
+| --- | --- | --- |
+| Headless Chromium | ✅ works | ships `--no-sandbox,--disable-dev-shm-usage` (override via `OFFERHOUND_BROWSER_FLAGS`) |
+| Headful Chromium | ⚠️ needs X | run under `xvfb-run -a` (Xvfb is bundled), or flip the bank to `headless: true` |
+| `mode: attach` | ✅ works | point `cdpUrl` at any CDP-reachable browser |
+| serve / UI | ✅ default CMD | `HEALTHCHECK` probes `/api/users` + browser sanity |
+
+A bank config asking for `headless: false` without a display fails fast with
+that exact advice — never a chromium stack trace. Pin versions with
+`ghcr.io/rajkumaar23/offerhound:v0.1.0` (multi-arch: amd64, arm64).
 
 ## Docs
 
