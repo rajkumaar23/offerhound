@@ -1,0 +1,72 @@
+# banks/examplebank.yaml — SYNTHETIC illustration of the full DSL.
+# The domain is reserved (RFC 2606); nothing here points at a real issuer.
+# Copy this as the starting point for your own bank config.
+id: examplebank
+name: Example Bank Offers
+baseUrl: https://offers.example.test
+
+browser:
+  mode: launch            # launch | attach
+  headless: true          # false => real window (banks that fingerprint)
+  profileDir: ~/.offerhound/profiles/examplebank
+  # mode: attach          # instead attach to your real signed-in browser:
+  # cdpUrl: http://desktop.local:9222
+
+rateLimit:
+  delayBetween: 1200ms
+  requestsPerRun: 30
+
+credentials:
+  username: env://OH_EXAMPLEBANK_USER     # or keyring://offerhound/examplebank
+  password: env://OH_EXAMPLEBANK_PASS     # literal secrets are rejected
+
+login:
+  probe:                                   # cheap signed-in check first
+    fetchApi: /api/whoami
+    okStatus: [200]
+  steps:                                   # only run when the probe fails
+    - navigate: https://offers.example.test/login
+    - waitSelector: { selector: "input[name=username]", timeout: 15s }
+    - fill: { selector: "input[name=username]", valueFrom: credential.username }
+    - fill: { selector: "input[name=password]", valueFrom: credential.password }
+    - click: { selector: "button[type=submit]", trusted: true }
+    - human:                               # SMS/push/OTP: pauses for a human
+        when: { selector: "input[name=otp]", timeout: 8s }
+        prompt: "Enter the 6-digit code Example Bank texted you"
+        fill: { selector: "input[name=otp]", submit: "button.verify" }
+        timeout: 10m
+
+offers:
+  - name: accounts
+    fetchApi: /api/accounts
+    saveAs: accounts                       # raw JSON for the each: loops below
+    cards:
+      each: "$[*]"
+      cardLabel: "{{.productName}} …{{.last4}}"
+
+  - name: grid                             # offers you can still add
+    each: { from: accounts, items: "$[*]", as: acct }
+    fetchApi: "/api/accounts/{{urlquery .acct.id}}/offers?pageSize=50"
+    paginate: { cursorParam: cursor, cursorPath: nextCursor, maxPages: 10 }
+    extract:
+      items: "$.data[*]"
+      status: eligible
+      fields:
+        merchant:   merchantName
+        rewardText: headline
+        channel:    terms.channel
+        notes:      terms.finePrint        # category rates/exclusions — UI sheet
+
+  - name: activated                        # already added to the card
+    each: { from: accounts, items: "$[*]", as: acct }
+    fetchApi: "/api/accounts/{{urlquery .acct.id}}/activated"
+    devalue: true                          # SvelteKit flat-array wire format
+    extract:
+      items: "activatedOffers[*]"
+      status: enrolled                     # enrolled wins on dedupe
+      fields:
+        merchant:   merchantName
+        rewardText: headline
+        channel:    terms.channel
+        notes:      terms.finePrint
+        expiryDate: { path: badge.text, transform: daysLeftToDate }

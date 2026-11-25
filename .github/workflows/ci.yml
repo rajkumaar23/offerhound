@@ -1,0 +1,38 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: gofmt
+        run: test -z "$(gofmt -l $(find . -name '*.go'))" || { gofmt -l .; exit 1; }
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race ./...
+      - name: verify example configs
+        run: go run ./cmd/offerhound verify docs/examples
+      - name: build
+        run: go build ./...
+  cross:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [windows, darwin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: cross-compile (${{ matrix.os }})
+        env:
+          GOOS: ${{ matrix.os }}
+        run: go build ./cmd/offerhound

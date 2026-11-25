@@ -1,0 +1,10 @@
+/offerhound
+/dist/
+*.db
+*.db-*
+/data/
+.DS_Store
+bin/
+dist/
+*.db
+.offerhound/

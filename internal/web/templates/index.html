@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>offerhound 🐕</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header>
+  <div class="brand">🐕 <strong>offerhound</strong></div>
+  <div id="banks" class="banks"></div>
+</header>
+
+<main>
+  <div id="needsyou" class="needsyou hidden"></div>
+
+  <div class="searchwrap">
+    <input id="q" type="search" autocomplete="off" enterkeyhint="search"
+           placeholder="Merchant, category, vendor…" autofocus>
+  </div>
+
+  <div class="chips" id="channelChips">
+    <button class="chip on" data-channel="">Everything</button>
+    <button class="chip" data-channel="in-store">🏬 In-store now</button>
+    <button class="chip" data-channel="online">🛒 Online</button>
+  </div>
+  <div class="chips" id="statusChips">
+    <button class="chip on" data-status="">Any status</button>
+    <button class="chip" data-status="eligible">Not added</button>
+    <button class="chip" data-status="enrolled">Added ✓</button>
+  </div>
+  <div class="chips" id="bankChips"></div>
+
+  <div id="meta" class="meta"></div>
+  <div id="results" class="results"></div>
+</main>
+
+<div id="sheet" class="sheet hidden">
+  <div class="sheet-inner">
+    <div class="sheet-grab"></div>
+    <div id="sheetBody"></div>
+    <button id="sheetClose" class="btn">Close</button>
+  </div>
+</div>
+
+<div id="humanSheet" class="sheet hidden">
+  <div class="sheet-inner">
+    <div class="sheet-grab"></div>
+    <h2 id="humanPrompt"></h2>
+    <img id="humanShot" alt="bank screen" class="hidden">
+    <input id="humanAnswer" inputmode="numeric" autocomplete="one-time-code"
+           placeholder="Enter code / answer">
+    <button id="humanSend" class="btn primary">Send answer</button>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
