@@ -37,7 +37,8 @@ async function renderResults() {
     ? `${offers.length} offer${offers.length === 1 ? "" : "s"} — tap any for the fine print`
     : "";
   if (!offers.length) {
-    $("#results").innerHTML = `<div class="empty">No matching offers in this wallet.<br>
+    $("#results").innerHTML = `<div class="empty"><img class="empty-mascot" src="/assets/mascot.png" alt="offerhound">
+      No matching offers in this wallet.<br>
       Try a looser term, another wallet, or run a sync from your client.</div>`;
     return;
   }

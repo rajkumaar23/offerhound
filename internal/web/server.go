@@ -64,6 +64,7 @@ func (sv *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// reads: open (offer data is not private info)
 	mux.HandleFunc("GET /{$}", sv.pageIndex)
+	mux.HandleFunc("GET /favicon.ico", sv.serveMascot)
 	mux.HandleFunc("GET /assets/{name}", sv.serveAsset)
 	mux.HandleFunc("GET /api/users", sv.apiUsers)
 	mux.HandleFunc("GET /api/search", sv.apiSearch)
@@ -101,6 +102,17 @@ func (sv *Server) pageIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(tpl)
+}
+
+func (sv *Server) serveMascot(w http.ResponseWriter, r *http.Request) {
+	b, err := static.ReadFile("assets/mascot.png")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(b)
 }
 
 func (sv *Server) serveAsset(w http.ResponseWriter, r *http.Request) {

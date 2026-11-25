@@ -1,5 +1,9 @@
 # offerhound 🐕💳
 
+<p align="center">
+  <img src="docs/assets/offerhound-mascot.png" width="200" alt="offerhound mascot: a hound in a monocle holding a fan of credit cards">
+</p>
+
 **Your cards sniff out their own offers.** Self-hosted credit-card offer
 aggregator for portals that deliberately hide offers behind your login
 (Chase Offers, Amex Offers, Capital One Offers, …). A declarative per-bank
