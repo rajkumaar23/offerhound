@@ -36,52 +36,87 @@ function merchantIcon(m) {
   return `<img class="micon" src="https://cdn.simpleicons.org/${slug}" alt="" loading="lazy" onerror="this.remove()">`;
 }
 
+function groupOffers(offers) {
+  // Same merchant+reward on two cards = ONE offer shown on two card chips.
+  // Grouping is display-only; underlying rows (per-card status/notes) are
+  // kept for the detail sheet.
+  const groups = [];
+  const idx = new Map();
+  for (const o of offers) {
+    const k = [o.bank, o.merchant, o.title, o.rewardText, o.channel].join("\u0000");
+    let g = idx.get(k);
+    if (!g) {
+      g = { bank: o.bank, merchant: o.merchant, title: o.title, rewardText: o.rewardText,
+            channel: o.channel, description: o.description, cards: [] };
+      idx.set(k, g);
+      groups.push(g);
+    }
+    g.cards.push(o);
+  }
+  return groups;
+}
+
 async function renderResults() {
   let offers = [];
   try {
     offers = await api("/api/search", {
       q: state.q, channel: state.channel, status: state.status, bank: state.bank,
+      limit: 5000,
     });
   } catch (e) { console.error(e); }
+  const groups = groupOffers(offers);
   $("#meta").textContent = offers.length
-    ? `${offers.length} offer${offers.length === 1 ? "" : "s"}`
+    ? `${groups.length} offer${groups.length === 1 ? "" : "s"}` +
+      (groups.length !== offers.length ? ` (on ${offers.length} card listings)` : "")
     : "";
-  if (!offers.length) {
+  if (!groups.length) {
     $("#results").innerHTML = `<div class="empty"><img class="empty-mascot" src="/assets/mascot.png" alt="offerhound">
       No matching offers in this wallet.<br>
       Try a looser term, another wallet, or run a sync from your client.</div>`;
     return;
   }
-  $("#results").innerHTML = offers.map((o, i) => {
-    const dl = daysLeft(o.expiryDate);
+  $("#results").innerHTML = groups.map((g, i) => {
+    const allAdded = g.cards.every((c) => c.status === "enrolled");
+    const someAdded = g.cards.some((c) => c.status === "enrolled");
+    const earliest = g.cards.map((c) => c.expiryDate).filter(Boolean).sort()[0];
+    const dl = daysLeft(earliest);
     const expiring = dl !== null && dl <= 7;
-    const enrolled = o.status === "enrolled";
+    const hasNotes = g.cards.some((c) => c.notes);
     return `<button class="offer" data-i="${i}">
-      <div class="row1"><span class="merchant">${merchantIcon(o.merchant)}${esc(o.merchant)}</span>
-        <span class="reward">${esc(o.rewardText)}</span></div>
-      <div class="sub">${[o.cardLabel, o.description].filter(Boolean).map(esc).join(" · ")}</div>
+      <div class="row1"><span class="merchant">${merchantIcon(g.merchant)}${esc(g.merchant)}</span>
+        <span class="reward">${esc(g.rewardText)}</span></div>
+      <div class="sub">${g.description ? esc(g.description) : ""}</div>
+      <div class="cards">${g.cards.map((c) =>
+        `<span class="cardchip${c.status === "enrolled" ? " added" : ""}">${esc(c.cardLabel || "default")}</span>`).join("")}</div>
       <div class="tags">
-        <span class="tag ${enrolled ? "status-added" : "status-open"}">${enrolled ? "added ✓" : "not added"}</span>
-        ${o.channel ? `<span class="tag">${esc(o.channel)}</span>` : ""}
+        <span class="tag ${allAdded ? "status-added" : "status-open"}">${
+          allAdded ? "added ✓" : someAdded ? "added ✓ on " + g.cards.filter((c) => c.status === "enrolled").length + " of " + g.cards.length : "not added"}</span>
+        ${g.channel ? `<span class="tag">${esc(g.channel)}</span>` : ""}
         ${expiring && dl >= 0 ? `<span class="tag expiring">${dl}d left</span>` : ""}
-        ${o.notes ? `<span class="tag has-notes">fine print ›</span>` : ""}
+        ${hasNotes ? `<span class="tag has-notes">fine print ›</span>` : ""}
       </div></button>`;
   }).join("");
   document.querySelectorAll(".offer").forEach((el) =>
-    el.addEventListener("click", () => openSheet(offers[+el.dataset.i])));
+    el.addEventListener("click", () => openSheet(groups[+el.dataset.i])));
 }
 
-function openSheet(o) {
-  const dl = daysLeft(o.expiryDate);
+function openSheet(g) {
+  const perCard = g.cards.map((c) => {
+    const dl = daysLeft(c.expiryDate);
+    return `<div class="cardblock">
+      <div class="cardblock-head"><span class="cardchip${c.status === "enrolled" ? " added" : ""}">${esc(c.cardLabel || "default")}</span>
+        <span class="cardblock-status ${c.status === "enrolled" ? "ok" : ""}">${c.status === "enrolled" ? "added ✓" : "not added"}</span>
+        ${c.expiryDate ? `<span class="cardblock-exp">${esc(c.expiryDate)}${dl !== null ? ` (${dl < 0 ? "expired" : dl + "d"})` : ""}</span>` : ""}</div>
+      ${c.notes ? `<div class="notes">${esc(c.notes)}</div>` : ""}
+    </div>`;
+  }).join("");
   $("#sheetBody").innerHTML = `
-    <h2>${esc(o.merchant)} <span style="color:var(--accent-hi)">${esc(o.rewardText)}</span></h2>
-    <div class="sub">${esc(o.cardLabel)} · ${esc(o.bank)}
-      ${o.status === "enrolled" ? " · added ✓" : " · not added"}
-      ${o.expiryDate ? ` · expires ${esc(o.expiryDate)}${dl !== null ? ` (${dl < 0 ? "expired" : dl + "d"})` : ""}` : ""}</div>
-    ${o.description ? `<h3>Description</h3><div class="notes">${esc(o.description)}</div>` : ""}
-    ${o.notes ? `<h3>The fine print ⚠️</h3><div class="notes">${esc(o.notes)}</div>` : ""}
-    ${o.termsUrl ? `<h3>Terms</h3><a href="${esc(o.termsUrl)}" target="_blank" rel="noopener">${esc(o.termsUrl)}</a>` : ""}
-    ${o.detailUrl ? `<h3>At the bank</h3><a href="${esc(o.detailUrl)}" target="_blank" rel="noopener">open the issuer's page ↗</a>` : ""}`;
+    <h2>${esc(g.merchant)} <span style="color:var(--accent-hi)">${esc(g.rewardText)}</span></h2>
+    <div class="sub">${esc(g.bank)}${g.channel ? " · " + esc(g.channel) : ""}</div>
+    ${g.description ? `<h3>Description</h3><div class="notes">${esc(g.description)}</div>` : ""}
+    <h3>On your cards (${g.cards.length})</h3>${perCard}
+    ${g.cards.map((c) => c.termsUrl).filter(Boolean).length ? `<h3>Terms</h3><a href="${esc(g.cards.map((c) => c.termsUrl).filter(Boolean)[0])}" target="_blank" rel="noopener">offer terms ↗</a>` : ""}
+    ${g.cards.map((c) => c.detailUrl).filter(Boolean).length ? `<h3>At the bank</h3><a href="${esc(g.cards.map((c) => c.detailUrl).filter(Boolean)[0])}" target="_blank" rel="noopener">open the issuer's page ↗</a>` : ""}`;
   $("#sheet").classList.remove("hidden");
 }
 

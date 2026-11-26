@@ -367,7 +367,7 @@ func (s *Store) Search(q Query) ([]offer.Offer, error) {
 	}
 	where := "WHERE " + strings.Join(conds, " AND ")
 	limit := q.Limit
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 || limit > 5000 {
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT id,bank,card_label,merchant,title,description,reward_text,reward_value,
