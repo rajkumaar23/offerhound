@@ -41,7 +41,7 @@ func (f *urlFake) Fill(context.Context, string, string, string) error           
 func (f *urlFake) CurrentURL(context.Context) (string, error)                         { return "", nil }
 func (f *urlFake) Close()                                                             {}
 
-const accountsJSON = `[{"accountReferenceId":"REF1","last4":"3040","productName":"Venture X"}]`
+const accountsJSON = `[{"accountReferenceId":"REF1","last4":"0000","productName":"Example Rewards Card"}]`
 
 const feedJSON = `{"cursor":"","data":[
  {"merchantTLD":"expedia.com","merchantDisplayName":"Expedia","type":"Standard","id":"ID1","buttonText":"Up to 5X miles","text":"Online"},
@@ -52,7 +52,7 @@ const expediaDetailJSON = `{"success":true,"offer":{
  "rewardDisplayText":"Up to 5X miles",
  "termsAndConditions":[
    {"title":"Merchant details","markdownTextSections":["To earn the rebate you must make an eligible purchase at expedia.com. **Use of promotional codes** not provided may invalidate your offer."]},
-   {"title":"How to receive the payout","markdownTextSections":["We will attempt to issue the payout to your Venture X account.","Payouts are usually issued within [45 days](https://x.y/t)."]}],
+   {"title":"How to receive the payout","markdownTextSections":["We will attempt to issue the payout to your card account.","Payouts are usually issued within [45 days](https://x.y/t)."]}],
  "disclaimer":"Payouts are usually issued within 45 days after a completed stay.",
  "affiliate":{"header":"Shop Online","displayAmount":"Up to 5X miles",
    "categories":[{"displayAmount":"5X miles","name":"Completed Hotel Stay"},{"displayAmount":"3X miles","name":"Completed Car Rental"}],
@@ -65,8 +65,8 @@ func TestDetailEnrichment(t *testing.T) {
 		"/xhr/feed/":     expediaDetailJSON, // only Expedia fetch matches substring; Chewy gets same doc (fine)
 	}}
 	bank := &config.Bank{
-		ID:      "capitalone",
-		BaseURL: "https://capitaloneoffers.com",
+		ID:      "examplebank",
+		BaseURL: "https://offers.example.test",
 		RateLimit: config.RateLimit{
 			RequestsPerRun: 50,
 			DelayBetween:   config.Duration(time.Millisecond),
@@ -111,7 +111,7 @@ func TestDetailEnrichment(t *testing.T) {
 		t.Fatalf("offers=%d want 2", len(res.Offers))
 	}
 	for _, o := range res.Offers {
-		if o.CardLabel != "Venture X •3040" {
+		if o.CardLabel != "Example Rewards Card •0000" {
 			t.Errorf("cardLabel=%q (each.cardLabel not applied)", o.CardLabel)
 		}
 	}

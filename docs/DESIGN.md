@@ -8,8 +8,8 @@
 
 1. **Logs into your bank/issuer portals** using a declarative, per-bank YAML
    config (the **DSL**) — no per-bank Go code.
-2. **Extracts your personalized, login-only card offers** (Amex Offers,
-   Chase Offers, Capital One Offers, …) into a local SQLite database with a
+2. **Extracts your personalized, login-only card offers** (major issuer
+   offer portals, …) into a local SQLite database with a
    normalized schema.
 3. **Serves a mobile-first web UI** for the two real moments of use:
    - *at the shop counter*: "does **any** of my cards have an **in-store**
@@ -62,7 +62,7 @@ server, a VM with Chrome); the phone needs the UI from *somewhere always up*
   --server https://… --token …` (or cron'd `sync --server …`). All traffic
   is **outbound from the browser host** — no port-forwarding onto the Mac.
 - One server can be fed by N worker hosts (Mac for Cap One's attach-mode,
-  a VM for headless Chase). Workers register `(hostID, banks[])`; the UI's
+  a VM for headless runs). Workers register `(hostID, banks[])`; the UI's
   "Run now" enqueues a job any eligible worker claims.
 - **Human 2FA crosses the seam transparently**: worker POSTs
   `needs_you{prompt, screenshot}` → server surfaces it in the phone UI →
@@ -329,5 +329,5 @@ pattern (token-authed local POST /api/ingest) so external collectors
 ## 10. Name
 
 **offerhound** — the hound sniffs every card so you don't have to log into
-any of them. CLI: `offerhound sync chase`. Mascot: a bloodhound with a
+any of them. CLI: `offerhound sync examplebank`. Mascot: a bloodhound with a
 monocle holding four credit cards in its mouth (design welcome as a PR 🙂).

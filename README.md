@@ -6,14 +6,14 @@
 
 **Your cards sniff out their own offers.** Self-hosted credit-card offer
 aggregator for portals that deliberately hide offers behind your login
-(Chase Offers, Amex Offers, Capital One Offers, …). A declarative per-bank
+(major issuer offer portals, …). A declarative per-bank
 YAML DSL drives a real browser over CDP; a mobile-first web UI answers the
 only question that matters at the register or checkout:
 
 > "Does **any** of my cards have an offer at **this** merchant, right now?"
 
 ```
-offerhound sync chase          # log in (headless or visible Chrome), collect
+offerhound sync examplebank      # log in (headless or visible Chrome), collect
 offerhound search "target"     # best card across your whole wallet
 offerhound serve               # phone-friendly web UI on your LAN
 offerhound doctor              # validate browser/display/sandbox before a sync

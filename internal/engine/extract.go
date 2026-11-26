@@ -58,7 +58,8 @@ func MapOffers(bankID, cardLabel string, doc []byte, ex *config.Extract, scraped
 				s = strings.TrimSpace(s)
 			case "beforeDash":
 				// "Mulberry - Luxury Handbags & Accessories" => "Mulberry".
-				// Amex (and others) stuff a category tag after the brand;
+				// Some issuer offer portals stuff a category tag after the
+				// brand;
 				// the brand alone reads far better in list rows.
 				if i := strings.Index(s, " - "); i > 0 {
 					s = s[:i]
@@ -164,7 +165,7 @@ func daysLeftToDate(s string) string {
 	return time.Now().UTC().AddDate(0, 0, n).Format("2006-01-02")
 }
 
-// expiresTextToDate turns Amex-style "Expires 12/31/26" (M/D/YY or M/D/YYYY)
+// expiresTextToDate turns issuer-style "Expires 12/31/26" (M/D/YY or M/D/YYYY)
 // into YYYY-MM-DD. Two-digit years are 20YY. Anything else yields "".
 func expiresTextToDate(s string) string {
 	m := expiresText.FindStringSubmatch(strings.TrimSpace(s))
@@ -204,7 +205,8 @@ func cleanPath(p string) string {
 // resolves to the document root. A trailing ".*" additionally accepts an
 // OBJECT at the parent path and returns its values as an array — gjson
 // wildcards never do that (verified: "obj.*", "obj.#", "obj.*.k" all fail
-// to yield arrays), and map-shaped collections like Amex' productsList are
+// to yield arrays), and map-shaped collections like issuer products-list
+// registries are
 // common inside hydration blobs.
 func getArr(doc []byte, path string) gjson.Result {
 	p := cleanPath(path)

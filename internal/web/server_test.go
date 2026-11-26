@@ -93,7 +93,7 @@ func TestUsersDropdown(t *testing.T) {
 	defer hs.Close()
 	post(t, hs.URL+"/api/ingest", "tok123", ingestBody).Body.Close()
 	post(t, hs.URL+"/api/ingest", "tok123",
-		`{"user":"bob","bank":"amex","complete":true,"offers":[
+		`{"user":"bob","bank":"examplebank","complete":true,"offers":[
 		  {"id":"z","merchant":"Target","rewardText":"5%","status":"eligible"}]}`).Body.Close()
 
 	resp, _ := http.Get(hs.URL + "/api/users")

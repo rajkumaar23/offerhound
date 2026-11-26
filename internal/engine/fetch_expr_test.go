@@ -7,7 +7,7 @@ import (
 )
 
 // TestFetchExpression pins the generated RequestInit: bank pages wrap
-// window.fetch (Datadog RUM on capitaloneoffers.com) and their validation
+// window.fetch (a RUM vendor wraps it on one major issuer portal) and their validation
 // throws TypeError on null headers. A rebase once silently reverted the
 // "{}"-not-null fix; unit tests saw nothing because the fake ignored the
 // expression. This test makes that regression impossible.

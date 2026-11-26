@@ -6,7 +6,7 @@ import (
 )
 
 func TestDecodeInline(t *testing.T) {
-	// Mirrors the wire shapes measured on the American Express offers
+	// Mirrors the wire shapes measured on a Remix/holocron issuer portal
 	// hydration blob 2026-11-26: everything inline, four marker kinds.
 	raw := `[
 	  "~#iM",

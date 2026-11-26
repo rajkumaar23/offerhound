@@ -8,7 +8,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const amexishHTML = `<!DOCTYPE html><html><head>
+const hydrationHTML = `<!DOCTYPE html><html><head>
 <script id="other">var x = 1;</script>
 </head><body>
 <script id="initial-state" nonce="abc-123">
@@ -24,7 +24,7 @@ func TestDecodeBodyInlineInitialState(t *testing.T) {
 		Assignment: "window.__INITIAL_STATE__",
 		Format:     "inlineDevalue",
 	}
-	doc, err := decodeBody(amexishHTML, spec, false)
+	doc, err := decodeBody(hydrationHTML, spec, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,14 +42,14 @@ func TestDecodeBodyInlineInitialState(t *testing.T) {
 
 func TestDecodeBodyScriptMissing(t *testing.T) {
 	spec := &config.DecodeSpec{ScriptID: "nope", Format: "inlineDevalue"}
-	if _, err := decodeBody(amexishHTML, spec, false); err == nil {
+	if _, err := decodeBody(hydrationHTML, spec, false); err == nil {
 		t.Fatal("expected error for missing script")
 	}
 }
 
 func TestDecodeBodyAssignmentMissing(t *testing.T) {
 	spec := &config.DecodeSpec{ScriptID: "initial-state", Assignment: "window.__NOT_THERE__", Format: "inlineDevalue"}
-	if _, err := decodeBody(amexishHTML, spec, false); err == nil {
+	if _, err := decodeBody(hydrationHTML, spec, false); err == nil {
 		t.Fatal("expected error for missing assignment")
 	}
 }
