@@ -56,6 +56,13 @@ func MapOffers(bankID, cardLabel string, doc []byte, ex *config.Extract, scraped
 				s = strings.Join(parts, ", ")
 			case "trim":
 				s = strings.TrimSpace(s)
+			case "beforeDash":
+				// "Mulberry - Luxury Handbags & Accessories" => "Mulberry".
+				// Amex (and others) stuff a category tag after the brand;
+				// the brand alone reads far better in list rows.
+				if i := strings.Index(s, " - "); i > 0 {
+					s = s[:i]
+				}
 			case "daysLeftToDate":
 				if d := daysLeftToDate(s); d != "" {
 					s = d

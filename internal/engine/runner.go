@@ -50,7 +50,7 @@ func (r *Runner) now() time.Time {
 
 // Run executes login (probe-gated) then all offers steps.
 func (r *Runner) Run(ctx context.Context) Result {
-	res := Result{}
+	res := Result{Complete: true}
 	if err := r.Browser.Navigate(ctx, r.Bank.BaseURL); err != nil {
 		res.Err = fmt.Errorf("open base url: %w", err)
 		return res
@@ -91,7 +91,12 @@ func (r *Runner) Run(ctx context.Context) Result {
 			for _, item := range items {
 				vars := map[string]any{f.Each.As: jsonRawToAny(item)}
 				if f.Each.CardLabel != "" {
-					if lbl, e := renderTemplate(f.Each.CardLabel, vars); e == nil && lbl != "" {
+					// cardLabel templates render over the ITEM itself (same
+					// context contract as cards.cardLabel in mapCards), so
+					// "{{.product.description}}" resolves — not "{{.acct.x}}".
+					itemCtx := map[string]any{}
+					_ = json.Unmarshal([]byte(item.Raw), &itemCtx)
+					if lbl, e := renderTemplate(f.Each.CardLabel, itemCtx); e == nil && lbl != "" {
 						vars["cardLabel"] = lbl
 					}
 				}

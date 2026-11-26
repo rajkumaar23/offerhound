@@ -201,8 +201,15 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 	fmt.Printf("%s: %d offers (%d cards)%s\n", b.ID, len(res.Offers), len(res.Cards),
 		map[bool]string{true: "", false: " [PARTIAL — stale marked]"}[res.Complete])
 	if verbose {
+		clip := func(s string, n int) string {
+			r := []rune(s)
+			if len(r) <= n {
+				return s
+			}
+			return string(r[:n-1]) + "…"
+		}
 		for _, o := range res.Offers[:min(5, len(res.Offers))] {
-			fmt.Printf("   %s | %s | %s | %s\n", o.CardLabel, o.Merchant, o.RewardText, o.Status)
+			fmt.Printf("   %s | %s | %s | %s\n", clip(o.CardLabel, 34), clip(o.Merchant, 42), clip(o.RewardText, 52), o.Status)
 		}
 	}
 	return nil
