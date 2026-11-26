@@ -162,6 +162,11 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 		client = engine.NewClient(flagServer, flagToken)
 		gate = &engine.ServerGate{Client: client, User: flagUser}
 	}
+	// An interactive terminal is the best audience of all: prompt right
+	// there instead of parking answers behind a web UI.
+	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+		gate = engine.StdinGate{}
+	}
 
 	r := &engine.Runner{Bank: b, Browser: br, Log: os.Stderr, Gate: gate}
 	res := r.Run(ctx)
