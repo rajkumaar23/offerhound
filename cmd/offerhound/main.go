@@ -41,8 +41,8 @@ func main() {
 		"SQLite database path (local mode)")
 	root.PersistentFlags().StringVar(&flagServer, "server", "",
 		"serve URL to push results to (split mode; omit for local)")
-	root.PersistentFlags().StringVar(&flagToken, "token", os.Getenv("OFFERHOUND_TOKEN"),
-		"API token for --server (or OFFERHOUND_TOKEN)")
+	root.PersistentFlags().StringVar(&flagToken, "token", "",
+		"API token for --server (default: OFFERHOUND_TOKEN env; never echoed in --help)")
 	root.PersistentFlags().StringVar(&flagUser, "user", store.DefaultUser,
 		"wallet this install populates (multi-user scoping key)")
 
@@ -129,6 +129,13 @@ func cmdVerify() *cobra.Command {
 	}
 }
 
+func apiToken() string {
+	if flagToken != "" {
+		return flagToken
+	}
+	return os.Getenv("OFFERHOUND_TOKEN") // resolved lazily: never a flag default, never in --help
+}
+
 func loadBanks() (map[string]*config.Bank, error) {
 	banks, err := config.LoadDir(flagConfigs)
 	if err != nil {
@@ -159,7 +166,7 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 	if flagServer != "" {
 		// Split mode: prompts must relay to the serve instance (the local
 		// store has no audience there) — same path the worker uses.
-		client = engine.NewClient(flagServer, flagToken)
+		client = engine.NewClient(flagServer, apiToken())
 		gate = &engine.ServerGate{Client: client, User: flagUser}
 	}
 	// An interactive terminal is the best audience of all: prompt right

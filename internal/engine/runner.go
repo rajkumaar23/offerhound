@@ -205,12 +205,18 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 }
 
 func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string) (body string, status int, retryAfter string, err error) {
-	h, _ := json.Marshal(headers)
+	// An empty record, never null: bank pages instrument window.fetch
+	// (Datadog RUM) and their RequestInit validation throws on null headers.
+	h := "{}"
+	if len(headers) > 0 {
+		b, _ := json.Marshal(headers)
+		h = string(b)
+	}
 	expr := fmt.Sprintf(`(async () => {
 		const r = await fetch(%s, {credentials: 'include', headers: %s});
 		const t = await r.text();
 		return JSON.stringify({status: r.status, retryAfter: r.headers.get('retry-after') || '', body: t});
-	})()`, quote(u), string(h))
+	})()`, quote(u), h)
 	raw, err := r.Browser.EvaluateJSON(ctx, expr)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("evaluate fetch (%s): %w", u, err)
