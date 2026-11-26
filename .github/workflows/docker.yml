@@ -26,7 +26,9 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
+            type=semver,pattern=v{{version}}
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch

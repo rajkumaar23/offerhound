@@ -87,7 +87,7 @@ before anything bank-facing runs:
 
 A bank config asking for `headless: false` without a display fails fast with
 that exact advice — never a chromium stack trace. Pin versions with
-`ghcr.io/rajkumaar23/offerhound:v0.1.0` (multi-arch: amd64, arm64).
+`ghcr.io/rajkumaar23/offerhound:0.1.0` (multi-arch: amd64, arm64).
 
 ## Docs
 
