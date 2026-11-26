@@ -42,7 +42,7 @@ type Credentials map[string]string
 type Probe struct {
 	FetchAPI string `yaml:"fetchApi"`
 	OKStatus []int  `yaml:"okStatus"`
-	HasPath  string `yaml:"hasPath"` // gjson path that must exist & be non-null
+	HasPath  string `yaml:"hasPath"` // gjson path (no $ prefix; root-array fields are "0.field") that must exist & be non-null
 }
 
 // Login is the auth flow: probe + steps run only when signed out.

@@ -241,7 +241,7 @@ func (r *Runner) probe(ctx context.Context) (bool, error) {
 	if !strings.HasPrefix(abs, "http") {
 		abs = strings.TrimSuffix(r.Bank.BaseURL, "/") + p.FetchAPI
 	}
-	_, status, _, err := r.fetch(ctx, abs, nil)
+	body, status, _, err := r.fetch(ctx, abs, nil)
 	if err != nil {
 		return false, nil // probe errors => treat as signed out
 	}
@@ -251,7 +251,22 @@ func (r *Runner) probe(ctx context.Context) (bool, error) {
 			ok = true
 		}
 	}
-	return ok, nil
+	if !ok {
+		return false, nil
+	}
+	// Status alone lies on SPAs: Remix answers unauthenticated API routes
+	// with 200 + an HTML/JSON shell. If HasPath is set, the body must
+	// actually contain it (and not null) or we are signed out.
+	if p.HasPath != "" {
+		if !gjson.ValidBytes([]byte(body)) {
+			return false, nil
+		}
+		v := gjson.Get(body, p.HasPath)
+		if !v.Exists() || v.Type == gjson.Null {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r *Runner) runSteps(ctx context.Context, steps []config.Step) error {
