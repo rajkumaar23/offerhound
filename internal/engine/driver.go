@@ -4,10 +4,12 @@ package engine
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/rajkumaar23/offerhound/internal/config"
@@ -155,6 +157,8 @@ func (b *cdpBrowser) Click(ctx context.Context, sel, jsPath string, trusted bool
 	}
 	cctx, cancel := context.WithTimeout(b.tab, timeout+5*time.Second)
 	defer cancel()
+	humanPause(250, 600) // a beat before any click — machine-timed clicks
+	// read as automation to behavioral bot filters.
 	if !trusted {
 		// native .click() via JS — cheap and sufficient for most buttons
 		expr := fmt.Sprintf(`(() => { const el = %s; if (!el) return 'missing';
@@ -177,6 +181,13 @@ func (b *cdpBrowser) Fill(ctx context.Context, sel, jsPath, value string) error 
 	if err := b.ensureTab(ctx); err != nil {
 		return err
 	}
+	if jsPath == "" {
+		// Real form field: type like a person. Instant .value= writes are a
+		// classic bot tell (Amex challenges fills that land too fast), so
+		// focus + clear via JS, then per-rune CDP insertText with jittered
+		// pauses. Missing element stays a silent no-op (flows rely on it).
+		return b.typeInto(ctx, sel, value)
+	}
 	// Native-setter write + input/change events: React/Angular-compatible.
 	expr := fmt.Sprintf(`(() => {
 		const el = %s;
@@ -191,6 +202,51 @@ func (b *cdpBrowser) Fill(ctx context.Context, sel, jsPath, value string) error 
 	})()`, targetJS(sel, jsPath), quote(value))
 	_, err := b.EvaluateJSON(ctx, expr)
 	return err
+}
+
+// typeInto focuses an existing input and types value char-by-char with
+// human-ish delays. Returns nil (no-op) when the element is absent.
+func (b *cdpBrowser) typeInto(ctx context.Context, sel, value string) error {
+	focus := fmt.Sprintf(`(() => {
+		const el = document.querySelector(%s);
+		if (!el) return 'missing';
+		el.scrollIntoView({block: 'center'});
+		el.focus();
+		const setter = Object.getOwnPropertyDescriptor(
+			el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+			'value').set;
+		setter.call(el, '');
+		el.dispatchEvent(new Event('input', {bubbles: true}));
+		return 'ok';
+	})()`, quote(sel))
+	res, err := b.EvaluateJSON(ctx, focus)
+	if err != nil || res == `"missing"` {
+		return err
+	}
+	humanPause(350, 800) // "read the page" before touching the field
+	for _, r := range value {
+		if err := chromedp.Run(b.tab, input.InsertText(string(r))); err != nil {
+			return err
+		}
+		humanPause(45, 140)
+	}
+	_, _ = b.EvaluateJSON(ctx, fmt.Sprintf(`(() => {
+		const el = document.querySelector(%s);
+		if (!el) return 'ok';
+		el.dispatchEvent(new Event('input', {bubbles: true}));
+		el.dispatchEvent(new Event('change', {bubbles: true}));
+		return 'ok';
+	})()`, quote(sel)))
+	return nil
+}
+
+// humanPause sleeps a random span to break up machine-timed interactions.
+func humanPause(minMs, maxMs int64) {
+	d := minMs
+	if maxMs > minMs {
+		d += rand.Int63n(maxMs - minMs)
+	}
+	time.Sleep(time.Duration(d) * time.Millisecond)
 }
 
 func (b *cdpBrowser) CurrentURL(ctx context.Context) (string, error) {
