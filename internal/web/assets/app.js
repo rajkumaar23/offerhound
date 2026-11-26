@@ -1,5 +1,5 @@
-/* offerhound UI — no frameworks, phone-first. The server is a dumb store:
-   this page only reads. A wallet dropdown switches between users. */
+/* offerhound UI — no frameworks, desktop-first responsive grid. The server
+   is a dumb store: this page only reads. A wallet dropdown switches users. */
 const $ = (s) => document.querySelector(s);
 const state = {
   q: "", channel: "", status: "", bank: "", timer: null,
@@ -26,6 +26,16 @@ function daysLeft(iso) {
   return Math.floor((new Date(iso + "T23:59:59Z") - Date.now()) / 86400000);
 }
 
+/* simpleicons.org slug heuristic: "Whole Foods In-Store" -> wholefoods.
+   404s self-remove; unknown brands just show text. */
+function merchantIcon(m) {
+  const slug = String(m || "").toLowerCase()
+    .replace(/\b(in[- ]store|online|in[- ]app|store|official)\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
+  if (!slug || slug.length < 3) return "";
+  return `<img class="micon" src="https://cdn.simpleicons.org/${slug}" alt="" loading="lazy" onerror="this.remove()">`;
+}
+
 async function renderResults() {
   let offers = [];
   try {
@@ -34,7 +44,7 @@ async function renderResults() {
     });
   } catch (e) { console.error(e); }
   $("#meta").textContent = offers.length
-    ? `${offers.length} offer${offers.length === 1 ? "" : "s"} — tap any for the fine print`
+    ? `${offers.length} offer${offers.length === 1 ? "" : "s"}`
     : "";
   if (!offers.length) {
     $("#results").innerHTML = `<div class="empty"><img class="empty-mascot" src="/assets/mascot.png" alt="offerhound">
@@ -45,15 +55,14 @@ async function renderResults() {
   $("#results").innerHTML = offers.map((o, i) => {
     const dl = daysLeft(o.expiryDate);
     const expiring = dl !== null && dl <= 7;
+    const enrolled = o.status === "enrolled";
     return `<button class="offer" data-i="${i}">
-      <div class="row1"><span class="merchant">${esc(o.merchant)}</span>
+      <div class="row1"><span class="merchant">${merchantIcon(o.merchant)}${esc(o.merchant)}</span>
         <span class="reward">${esc(o.rewardText)}</span></div>
-      <div class="sub">${esc(o.cardLabel)}${o.description ? " · " + esc(o.description) : ""}</div>
+      <div class="sub">${[o.cardLabel, o.description].filter(Boolean).map(esc).join(" · ")}</div>
       <div class="tags">
-        <span class="tag">${esc(o.bank)}</span>
+        <span class="tag ${enrolled ? "status-added" : "status-open"}">${enrolled ? "added ✓" : "not added"}</span>
         ${o.channel ? `<span class="tag">${esc(o.channel)}</span>` : ""}
-        <span class="tag ${o.status === "enrolled" ? "enrolled" : ""}">${
-          o.status === "enrolled" ? "added ✓" : "not added"}</span>
         ${expiring && dl >= 0 ? `<span class="tag expiring">${dl}d left</span>` : ""}
         ${o.notes ? `<span class="tag has-notes">fine print ›</span>` : ""}
       </div></button>`;
@@ -65,8 +74,8 @@ async function renderResults() {
 function openSheet(o) {
   const dl = daysLeft(o.expiryDate);
   $("#sheetBody").innerHTML = `
-    <h2>${esc(o.merchant)} <span style="color:var(--green)">${esc(o.rewardText)}</span></h2>
-    <div class="sub" style="color:var(--dim)">${esc(o.cardLabel)} · ${esc(o.bank)}
+    <h2>${esc(o.merchant)} <span style="color:var(--accent-hi)">${esc(o.rewardText)}</span></h2>
+    <div class="sub">${esc(o.cardLabel)} · ${esc(o.bank)}
       ${o.status === "enrolled" ? " · added ✓" : " · not added"}
       ${o.expiryDate ? ` · expires ${esc(o.expiryDate)}${dl !== null ? ` (${dl < 0 ? "expired" : dl + "d"})` : ""}` : ""}</div>
     ${o.description ? `<h3>Description</h3><div class="notes">${esc(o.description)}</div>` : ""}
@@ -174,6 +183,7 @@ document.querySelectorAll("[data-status]").forEach((el) => el.addEventListener("
 }));
 $("#sheetClose").onclick = () => $("#sheet").classList.add("hidden");
 $("#sheet").onclick = (e) => { if (e.target.id === "sheet") $("#sheet").classList.add("hidden"); };
+$("#humanSheet").onclick = (e) => { if (e.target.id === "humanSheet") $("#humanSheet").classList.add("hidden"); };
 
 renderUsers().then(renderAll);
 setInterval(pollHuman, 5000);
