@@ -40,9 +40,10 @@ type Credentials map[string]string
 // Probe is a cheap signed-in check; when it succeeds the login flow is
 // skipped entirely (session persistence does the work).
 type Probe struct {
-	FetchAPI string `yaml:"fetchApi"`
-	OKStatus []int  `yaml:"okStatus"`
-	HasPath  string `yaml:"hasPath"` // gjson path (no $ prefix; root-array fields are "0.field") that must exist & be non-null
+	FetchAPI string      `yaml:"fetchApi"`
+	OKStatus []int       `yaml:"okStatus"`
+	HasPath  string      `yaml:"hasPath"` // gjson path that must exist & be non-null
+	Decode   *DecodeSpec `yaml:"decode"`  // apply the same body decoder as offers steps before hasPath
 }
 
 // Login is the auth flow: probe + steps run only when signed out.
@@ -53,9 +54,22 @@ type Login struct {
 
 // EachSpec loops a step over a JSON array saved by a previous step.
 type EachSpec struct {
-	From  string `yaml:"from"`  // saveAs key of a previous fetchApi
-	Items string `yaml:"items"` // gjson path, e.g. "$[*]"
-	As    string `yaml:"as"`    // template variable name
+	From      string `yaml:"from"`      // saveAs key of a previous fetchApi
+	Items     string `yaml:"items"`     // gjson path, e.g. "$[*]"
+	As        string `yaml:"as"`        // template variable name
+	CardLabel string `yaml:"cardLabel"` // optional text/template over the item;
+	// stamped as CardLabel on offers produced by this loop (same template
+	// language as CardsSpec.CardLabel). Without it offers land on "default".
+}
+
+// DecodeSpec converts a non-JSON wire body into a JSON document before
+// saveAs/extract. Many modern portals server-render their data into an
+// HTML hydration script instead of serving an API; decode unwraps that.
+// Zero value / nil = the body already is JSON (today's behaviour).
+type DecodeSpec struct {
+	ScriptID   string `yaml:"script"`     // read <script id="...">'s body instead of the whole document
+	Assignment string `yaml:"assignment"` // unwrap `window.NAME = "<json>";` (window. prefix optional)
+	Format     string `yaml:"format"`     // devalue (flat chunk array) | inlineDevalue (Remix inline markers)
 }
 
 // Paginate follows cursor-paginated JSON endpoints.
@@ -143,6 +157,7 @@ type FetchAPISpec struct {
 	URL      string            `yaml:"fetchApi"` // template: /feed/{{urlquery .acct.id}}
 	SaveAs   string            `yaml:"saveAs"`
 	Devalue  bool              `yaml:"devalue"` // decode SvelteKit flat-array wire format
+	Decode   *DecodeSpec       `yaml:"decode"`  // generalized body decoder (supersedes devalue when set)
 	Headers  map[string]string `yaml:"headers"`
 	Paginate *Paginate         `yaml:"paginate"`
 	Each     *EachSpec         `yaml:"each"`
@@ -193,6 +208,7 @@ type stepYAML struct {
 	FetchAPI     string            `yaml:"fetchApi"`
 	SaveAs       string            `yaml:"saveAs"`
 	Devalue      bool              `yaml:"devalue"`
+	Decode       *DecodeSpec       `yaml:"decode"`
 	Headers      map[string]string `yaml:"headers"`
 	Paginate     *Paginate         `yaml:"paginate"`
 	Each         *EachSpec         `yaml:"each"`
@@ -215,7 +231,7 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 		}
 		s.FetchAPI = &FetchAPISpec{
 			Name: y.Name, URL: y.FetchAPI, SaveAs: y.SaveAs, Devalue: y.Devalue,
-			Headers: y.Headers, Paginate: y.Paginate, Each: y.Each,
+			Decode: y.Decode, Headers: y.Headers, Paginate: y.Paginate, Each: y.Each,
 			Extract: y.Extract, Cards: y.Cards,
 		}
 	}
@@ -261,8 +277,10 @@ type Bank struct {
 func (b *Bank) Path() string { return b.path }
 
 var (
-	idRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-	credRef = regexp.MustCompile(`^(env|keyring|file)://[A-Za-z0-9_./-]+$`)
+	idRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+	credRef   = regexp.MustCompile(`^(env|keyring|file)://[A-Za-z0-9_./-]+$`)
+	scriptID  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	assignVar = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]{0,127}$`)
 )
 
 // Validate enforces DSL invariants, including the read-only rule: offer
@@ -388,6 +406,19 @@ func (s *Step) validate() error {
 		}
 		if f.Each != nil && (f.Each.From == "" || f.Each.Items == "" || f.Each.As == "") {
 			return fmt.Errorf("each needs from, items, as")
+		}
+		if d := f.Decode; d != nil {
+			switch d.Format {
+			case "devalue", "inlineDevalue":
+			default:
+				return fmt.Errorf("decode.format must be devalue|inlineDevalue, got %q", d.Format)
+			}
+			if d.ScriptID != "" && !scriptID.MatchString(d.ScriptID) {
+				return fmt.Errorf("decode.script %q must match %s", d.ScriptID, scriptID)
+			}
+			if d.Assignment != "" && !assignVar.MatchString(strings.TrimPrefix(d.Assignment, "window.")) {
+				return fmt.Errorf("decode.assignment %q must be window.<identifier>", d.Assignment)
+			}
 		}
 	}
 	if h := s.Human; h != nil {

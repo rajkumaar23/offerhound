@@ -13,7 +13,6 @@ import (
 	"crypto/rand"
 
 	"github.com/rajkumaar23/offerhound/internal/config"
-	"github.com/rajkumaar23/offerhound/internal/devalue"
 	"github.com/rajkumaar23/offerhound/internal/offer"
 	"github.com/tidwall/gjson"
 )
@@ -91,6 +90,11 @@ func (r *Runner) Run(ctx context.Context) Result {
 			}
 			for _, item := range items {
 				vars := map[string]any{f.Each.As: jsonRawToAny(item)}
+				if f.Each.CardLabel != "" {
+					if lbl, e := renderTemplate(f.Each.CardLabel, vars); e == nil && lbl != "" {
+						vars["cardLabel"] = lbl
+					}
+				}
 				if err := r.fetchExtract(ctx, f, vars, lim, &res, saved); err != nil {
 					res.SkippedLog = append(res.SkippedLog, err.Error())
 					res.Complete = false
@@ -154,18 +158,14 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("fetchApi %s: status %d", f.Name, status)
 		}
-		if f.Devalue {
-			decoded, err := devalue.Decode([]byte(body))
-			if err != nil {
-				return fmt.Errorf("devalue decode (%s): %w", f.Name, err)
-			}
-			if b, err := json.Marshal(decoded); err == nil {
-				body = string(b)
-			}
+		decodedBody, derr := decodeBody(body, f.Decode, f.Devalue)
+		if derr != nil {
+			return fmt.Errorf("decode (%s): %w", f.Name, derr)
 		}
+		body = decodedBody
 		if f.SaveAs != "" {
 			saved[f.SaveAs] = append(saved[f.SaveAs], []byte(body)...)
-			if !f.Devalue && f.SaveAs != "" { // keep only last page for non-paginated
+			if !f.Devalue && f.Decode == nil && f.SaveAs != "" { // keep only last page for non-paginated
 				saved[f.SaveAs] = []byte(body)
 			}
 		}
@@ -205,18 +205,12 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 }
 
 func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string) (body string, status int, retryAfter string, err error) {
-	// An empty record, never null: bank pages instrument window.fetch
-	// (Datadog RUM) and their RequestInit validation throws on null headers.
-	h := "{}"
-	if len(headers) > 0 {
-		b, _ := json.Marshal(headers)
-		h = string(b)
-	}
+	h, _ := json.Marshal(headers)
 	expr := fmt.Sprintf(`(async () => {
 		const r = await fetch(%s, {credentials: 'include', headers: %s});
 		const t = await r.text();
 		return JSON.stringify({status: r.status, retryAfter: r.headers.get('retry-after') || '', body: t});
-	})()`, quote(u), h)
+	})()`, quote(u), string(h))
 	raw, err := r.Browser.EvaluateJSON(ctx, expr)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("evaluate fetch (%s): %w", u, err)
@@ -251,22 +245,18 @@ func (r *Runner) probe(ctx context.Context) (bool, error) {
 			ok = true
 		}
 	}
-	if !ok {
-		return false, nil
-	}
-	// Status alone lies on SPAs: Remix answers unauthenticated API routes
-	// with 200 + an HTML/JSON shell. If HasPath is set, the body must
-	// actually contain it (and not null) or we are signed out.
-	if p.HasPath != "" {
-		if !gjson.ValidBytes([]byte(body)) {
+	if ok && p.HasPath != "" {
+		// Cheap auth discriminator: signed-out portals often answer 200
+		// with a login page (redirects are followed), so status alone lies.
+		decoded, derr := decodeBody(body, p.Decode, false)
+		if derr != nil {
 			return false, nil
 		}
-		v := gjson.Get(body, p.HasPath)
-		if !v.Exists() || v.Type == gjson.Null {
+		if v := gjson.GetBytes([]byte(decoded), cleanPath(p.HasPath)); !v.Exists() || v.String() == "null" {
 			return false, nil
 		}
 	}
-	return true, nil
+	return ok, nil
 }
 
 func (r *Runner) runSteps(ctx context.Context, steps []config.Step) error {

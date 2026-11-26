@@ -62,6 +62,12 @@ func MapOffers(bankID, cardLabel string, doc []byte, ex *config.Extract, scraped
 				} else {
 					s = ""
 				}
+			case "expiresTextToDate":
+				if d := expiresTextToDate(s); d != "" {
+					s = d
+				} else {
+					s = ""
+				}
 			case "":
 				// collapse newlines from button labels ("Spend $20,\n earn 500 miles")
 				s = strings.Join(strings.Fields(s), " ")
@@ -116,10 +122,11 @@ func OfferID(o offer.Offer) string {
 }
 
 var (
-	multiX   = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*[x×]`)
-	dollar   = regexp.MustCompile(`\$([\d,]+(?:\.\d+)?)`)
-	percent  = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*%`)
-	daysLeft = regexp.MustCompile(`(?i)(\d+)\s*days?\s*left`)
+	multiX      = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*[x×]`)
+	dollar      = regexp.MustCompile(`\$([\d,]+(?:\.\d+)?)`)
+	percent     = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*%`)
+	daysLeft    = regexp.MustCompile(`(?i)(\d+)\s*days?\s*left`)
+	expiresText = regexp.MustCompile(`(?i)expires\s+(\d{1,2})/(\d{1,2})/(\d{2,4})\s*$`)
 )
 
 // parseRewardValue extracts a comparable magnitude: Nx → N, $X → X, N% → N.
@@ -147,6 +154,29 @@ func daysLeftToDate(s string) string {
 	}
 	n, _ := strconv.Atoi(m[1])
 	return time.Now().UTC().AddDate(0, 0, n).Format("2006-01-02")
+}
+
+// expiresTextToDate turns Amex-style "Expires 12/31/26" (M/D/YY or M/D/YYYY)
+// into YYYY-MM-DD. Two-digit years are 20YY. Anything else yields "".
+func expiresTextToDate(s string) string {
+	m := expiresText.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return ""
+	}
+	mo, err1 := strconv.Atoi(m[1])
+	d, err2 := strconv.Atoi(m[2])
+	y, err3 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil || err3 != nil || mo < 1 || mo > 12 || d < 1 || d > 31 {
+		return ""
+	}
+	if y < 100 {
+		y += 2000
+	}
+	t := time.Date(y, time.Month(mo), d, 0, 0, 0, 0, time.UTC)
+	if t.Month() != time.Month(mo) || t.Day() != d {
+		return "" // rolled over => invalid calendar date
+	}
+	return t.Format("2006-01-02")
 }
 
 func mustGet(get func(string) (string, bool), name string) string {
