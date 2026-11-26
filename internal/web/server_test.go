@@ -201,3 +201,20 @@ func TestOversizedBodyRejected(t *testing.T) {
 		t.Fatalf("3MB body must be rejected at the reader, got %d", resp.StatusCode)
 	}
 }
+
+func TestNoRemoteIconsInjectsConfig(t *testing.T) {
+	s := newTestStore(t)
+	sv := New(s, "tok123")
+	hs := httptest.NewServer(sv.Handler())
+	defer hs.Close()
+	resp, _ := http.Get(hs.URL + "/")
+	body := mustRead(resp)
+	if !strings.Contains(body, `"remoteIcons":true`) {
+		t.Fatalf("default page must enable icons, got %q", body[:200])
+	}
+	sv.NoRemoteIcons = true
+	resp, _ = http.Get(hs.URL + "/")
+	if body = mustRead(resp); !strings.Contains(body, `"remoteIcons":false`) {
+		t.Fatal("--no-remote-icons must flip the page config")
+	}
+}

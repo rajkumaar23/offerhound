@@ -261,6 +261,7 @@ func cmdSync() *cobra.Command {
 
 func cmdServe() *cobra.Command {
 	var listen, token, tokenHash string
+	var noRemoteIcons bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Web UI + API: dumb store + phone-first display",
@@ -290,12 +291,14 @@ func cmdServe() *cobra.Command {
 					"(GETs open; POSTs need X-Offerhound-Token. Prefer --token-hash to keep the secret off this host.)\n",
 					listen, token)
 			}
+			sv.NoRemoteIcons = noRemoteIcons
 			return sv.Serve(listen)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", "127.0.0.1:8090", "host:port (0.0.0.0 exposes the LAN; reads open, writes token-gated)")
 	cmd.Flags().StringVar(&token, "token", "", "write token plaintext (default: data dir token file)")
 	cmd.Flags().StringVar(&tokenHash, "token-hash", "", "write token as hex SHA-256 (preferred: plaintext never touches this host)")
+	cmd.Flags().BoolVar(&noRemoteIcons, "no-remote-icons", false, "suppress third-party merchant-icon CDN (no visitor IP/merchant names leave the LAN)")
 	return cmd
 }
 

@@ -37,6 +37,7 @@ function daysLeft(iso) {
 /* simpleicons.org slug heuristic: "Whole Foods In-Store" -> wholefoods.
    404s self-remove; unknown brands just show text. */
 function merchantIcon(m) {
+  if ((window.OFFERHOUND || {}).remoteIcons === false) return ""; // --no-remote-icons
   // Strip noise words to a FIXPOINT: one pass can re-form a stripped word
   // from surrounding characters ("inin-store" + leftover "nline" ->
   // "online"), which is exactly what single-pass sanitization misses.

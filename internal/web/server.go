@@ -18,6 +18,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,10 @@ var static embed.FS
 type Server struct {
 	Store     *store.Store
 	tokenHash string // hex SHA-256; empty => writes open (single-user LAN)
+	// NoRemoteIcons suppresses third-party CDN assets (merchant icons):
+	// the browser then never reveals visitor IPs or merchant names to
+	// external hosts.
+	NoRemoteIcons bool
 }
 
 // New builds a server from a plaintext token (hashed immediately; the
@@ -107,6 +112,9 @@ func (sv *Server) pageIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if sv.NoRemoteIcons {
+		tpl = bytes.Replace(tpl, []byte(`"remoteIcons":true`), []byte(`"remoteIcons":false`), 1)
+	}
 	w.Write(tpl)
 }
 

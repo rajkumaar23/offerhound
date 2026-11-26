@@ -49,6 +49,7 @@ export OH_EXAMPLEBANK_USER=... OH_EXAMPLEBANK_PASS=...
 offerhound sync examplebank
 offerhound search delta
 offerhound serve --listen 0.0.0.0:8090   # token printed once
+offerhound serve --no-remote-icons       # keep browser pings off the icon CDN
 ```
 
 Bring your own bank configs: drop YAML files into `~/.offerhound/configs`
