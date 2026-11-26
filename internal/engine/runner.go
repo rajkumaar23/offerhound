@@ -190,6 +190,9 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 			if err != nil {
 				return fmt.Errorf("extract (%s): %w", f.Name, err)
 			}
+			if f.Detail != nil {
+				r.enrichDetails(ctx, f, vars, offers, lim)
+			}
 			res.Offers = append(res.Offers, offers...)
 		}
 		if f.Paginate == nil || pages >= f.Paginate.MaxPages {

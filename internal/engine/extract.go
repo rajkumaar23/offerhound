@@ -113,6 +113,7 @@ func MapOffers(bankID, cardLabel string, doc []byte, ex *config.Extract, scraped
 		}
 		o.Source = mustGet(get, "source")
 		o.DetailURL = mustGet(get, "detailUrl")
+		o.SourceID = mustGet(get, "sourceId") // raw issuer id for detail URL templating
 		o.RewardValue = parseRewardValue(o.RewardText)
 		o.ID = OfferID(o)
 		out = append(out, o)

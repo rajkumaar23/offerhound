@@ -24,6 +24,7 @@ type Offer struct {
 	Status      Status    `json:"status"`
 	Notes       string    `json:"notes,omitempty"` // fine print: category rates, exclusions
 	TermsURL    string    `json:"termsUrl,omitempty"`
+	SourceID    string    `json:"sourceId,omitempty"`   // raw issuer id (from extract field "sourceId"); used to build detail URLs
 	ExpiryDate  string    `json:"expiryDate,omitempty"` // YYYY-MM-DD
 	Source      string    `json:"source,omitempty"`
 	DetailURL   string    `json:"detailUrl,omitempty"`

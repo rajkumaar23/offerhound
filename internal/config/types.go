@@ -163,6 +163,30 @@ type FetchAPISpec struct {
 	Each     *EachSpec         `yaml:"each"`
 	Extract  *Extract          `yaml:"extract"`
 	Cards    *CardsSpec        `yaml:"cards"`
+	Detail   *DetailSpec       `yaml:"detail"`
+}
+
+// NoteBlock renders one notes block from an array in the detail document:
+// every element of Root becomes "PrefixFrom: TextFrom[0]\nTextFrom[1]…".
+// Handles both {title, markdownTextSections[]} term shapes and
+// {name, displayAmount} rate-category shapes.
+type NoteBlock struct {
+	Root       string `yaml:"root"`       // gjson path to an array
+	PrefixFrom string `yaml:"prefixFrom"` // element field used as "Title:" (optional)
+	TextFrom   string `yaml:"textFrom"`   // element field(s) (string or array of strings)
+	Skip       bool   `yaml:"skip"`       // prefix only, no body (renders the list)
+}
+
+// DetailSpec fetches a per-offer document to fill fields the list/grid
+// payload omits (fine print, category rates, terms link). The URL template
+// sees the loop vars plus .offer.{id,merchant,title}. Failures skip the
+// enrichment for that offer; they never fail the run.
+type DetailSpec struct {
+	URL       string            `yaml:"fetchApi"`
+	Headers   map[string]string `yaml:"headers"`
+	Decode    *DecodeSpec       `yaml:"decode"`
+	Notes     []NoteBlock       `yaml:"notes"`
+	TermsPath string            `yaml:"termsPath"` // gjson path for termsUrl (optional)
 }
 
 // StepType enumerates the DSL vocabulary.
@@ -214,6 +238,7 @@ type stepYAML struct {
 	Each         *EachSpec         `yaml:"each"`
 	Extract      *Extract          `yaml:"extract"`
 	Cards        *CardsSpec        `yaml:"cards"`
+	Detail       *DetailSpec       `yaml:"detail"`
 	Human        *HumanSpec        `yaml:"human"`
 }
 
@@ -231,7 +256,7 @@ func (s *Step) UnmarshalYAML(value *yaml.Node) error {
 		}
 		s.FetchAPI = &FetchAPISpec{
 			Name: y.Name, URL: y.FetchAPI, SaveAs: y.SaveAs, Devalue: y.Devalue,
-			Decode: y.Decode, Headers: y.Headers, Paginate: y.Paginate, Each: y.Each,
+			Decode: y.Decode, Headers: y.Headers, Paginate: y.Paginate, Each: y.Each, Detail: y.Detail,
 			Extract: y.Extract, Cards: y.Cards,
 		}
 	}
