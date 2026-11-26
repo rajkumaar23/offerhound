@@ -35,9 +35,10 @@ type Runner struct {
 	Now     func() time.Time
 }
 
-// maxRetryWait caps how long a 429 Retry-After may block a step; anything
-// larger means the bank wants us back tomorrow, not mid-run.
-const maxRetryWait = 5 * time.Minute
+// maxRetryWait caps how much of a 429 Retry-After we ever sleep: portals
+// advertise day-long values for soft blocks that clear in minutes (a human
+// reload works immediately). var so tests can shrink it.
+var maxRetryWait = 2 * time.Minute
 
 func (r *Runner) logf(f string, a ...any) {
 	if r.Log != nil {
@@ -134,6 +135,7 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 	}
 	cursor := ""
 	pages := 0
+	gave429Retry := false
 	for {
 		pages++
 		pageURL := u
@@ -153,22 +155,25 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 			if d, e := time.ParseDuration(retryAfter + "s"); e == nil {
 				wait = d
 			}
-			// Banks send Retry-After: 86400 when they mean "come back
-			// tomorrow" — sleeping that out hijacks the whole run. Beyond
-			// the budget, bail; the next scheduled sync retries.
+			// Trust the header only up to the cap — day-long Retry-After
+			// values sit on minutes-long soft blocks — then give the step
+			// exactly one retry. (The old per-page allowance let
+			// non-paginated steps loop on 429 forever.)
 			if wait > maxRetryWait {
-				return fmt.Errorf("rate limited (429) on %s: retry-after %v exceeds %v budget; aborting", f.Name, wait, maxRetryWait)
+				r.logf("429 on %s: retry-after %vs exceeds trust cap; using %v", f.Name, wait.Seconds(), maxRetryWait)
+				wait = maxRetryWait
 			}
-			r.logf("429 rate limited; sleeping %v", wait)
+			if gave429Retry {
+				return fmt.Errorf("rate limited (429) on %s after one retry", f.Name)
+			}
+			gave429Retry = true
+			r.logf("429 rate limited; sleeping %v then retrying once", wait)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(wait):
 			}
-			if f.Paginate == nil || pages < 2 { // only one retry for non-paginated
-				continue
-			}
-			return fmt.Errorf("rate limited (429) on %s", f.Name)
+			continue
 		}
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("fetchApi %s: status %d", f.Name, status)
@@ -224,7 +229,7 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 
 func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string) (body string, status int, retryAfter string, err error) {
 	// An empty record, never null: bank pages instrument window.fetch
-	// (Datadog RUM on capitaloneoffers.com) and the wrapper type-checks
+	// (a RUM vendor wraps fetch on one major issuer portal) and the wrapper type-checks
 	// headers, throwing TypeError on null. Pinned by TestFetchExpression.
 	h := "{}"
 	if len(headers) > 0 {

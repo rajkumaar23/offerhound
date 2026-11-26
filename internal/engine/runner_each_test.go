@@ -71,7 +71,10 @@ func TestCompleteFalseWhenNoOffers(t *testing.T) {
 	}
 }
 
-func TestRateLimitFailFastOnHugeRetryAfter(t *testing.T) {
+func TestRateLimitCappedSingleRetry(t *testing.T) {
+	saved := maxRetryWait
+	maxRetryWait = 50 * time.Millisecond
+	defer func() { maxRetryWait = saved }()
 	r := &Runner{
 		Bank: &config.Bank{ID: "t", BaseURL: "https://example.test",
 			Offers: []config.Step{{FetchAPI: &config.FetchAPISpec{URL: "/x", Name: "x"}}}},
@@ -80,12 +83,15 @@ func TestRateLimitFailFastOnHugeRetryAfter(t *testing.T) {
 	start := time.Now()
 	res := r.Run(context.Background())
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("huge Retry-After blocked the run for %v", elapsed)
+		t.Fatalf("day-long Retry-After must be capped; run took %v", elapsed)
 	}
 	if res.Complete {
 		t.Fatal("429-aborted step must not be complete")
 	}
-	if len(res.SkippedLog) == 0 || !strings.Contains(res.SkippedLog[0], "retry-after") {
-		t.Fatalf("want retry-after in skipped log, got %v", res.SkippedLog)
+	if len(res.SkippedLog) == 0 || !strings.Contains(res.SkippedLog[0], "429") {
+		t.Fatalf("want 429 in skipped log, got %v", res.SkippedLog)
+	}
+	if !strings.Contains(res.SkippedLog[0], "one retry") {
+		t.Fatalf("must state the single retry was spent: %v", res.SkippedLog)
 	}
 }
