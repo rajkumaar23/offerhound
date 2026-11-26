@@ -183,9 +183,19 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 		return res.Err
 	}
 	note := fmt.Sprintf("collected %d offers", len(res.Offers))
+	printSkipped := func() {
+		for i, s := range res.SkippedLog {
+			if i == 5 {
+				fmt.Fprintf(os.Stderr, "   … %d more skipped steps\n", len(res.SkippedLog)-5)
+				break
+			}
+			fmt.Fprintf(os.Stderr, "   ! %s\n", s)
+		}
+	}
 	if err := st.Ingest(flagUser, b.ID, res.Cards, res.Offers, res.Complete, note); err != nil {
 		if err == store.ErrPartialRejected {
 			fmt.Fprintf(os.Stderr, "[%s] partial collection rejected; last-good data kept\n", b.ID)
+			printSkipped()
 			return nil
 		}
 		return err
@@ -200,6 +210,9 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 	}
 	fmt.Printf("%s: %d offers (%d cards)%s\n", b.ID, len(res.Offers), len(res.Cards),
 		map[bool]string{true: "", false: " [PARTIAL — stale marked]"}[res.Complete])
+	if !res.Complete {
+		printSkipped()
+	}
 	if verbose {
 		clip := func(s string, n int) string {
 			r := []rune(s)

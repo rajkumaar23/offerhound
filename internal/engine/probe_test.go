@@ -12,10 +12,11 @@ import (
 // fakeBrowser answers only what probe() exercises: EvaluateJSON returns the
 // canned fetch envelope.
 type fakeBrowser struct {
-	body     string
-	status   int
-	err      error
-	lastExpr string
+	body       string
+	status     int
+	retryAfter string
+	err        error
+	lastExpr   string
 }
 
 func (f *fakeBrowser) Navigate(context.Context, string) error { return nil }
@@ -30,7 +31,7 @@ func (f *fakeBrowser) EvaluateJSON(_ context.Context, expr string) (string, erro
 		Status     int    `json:"status"`
 		RetryAfter string `json:"retryAfter"`
 		Body       string `json:"body"`
-	}{f.status, "", f.body})
+	}{f.status, f.retryAfter, f.body})
 	return string(env), nil
 }
 func (f *fakeBrowser) WaitFor(context.Context, string, string, bool, time.Duration) error {

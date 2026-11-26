@@ -35,6 +35,10 @@ type Runner struct {
 	Now     func() time.Time
 }
 
+// maxRetryWait caps how long a 429 Retry-After may block a step; anything
+// larger means the bank wants us back tomorrow, not mid-run.
+const maxRetryWait = 5 * time.Minute
+
 func (r *Runner) logf(f string, a ...any) {
 	if r.Log != nil {
 		fmt.Fprintf(r.Log, "[%s] "+f+"\n", append([]any{r.Bank.ID}, a...)...)
@@ -148,6 +152,12 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 			wait := 30 * time.Second
 			if d, e := time.ParseDuration(retryAfter + "s"); e == nil {
 				wait = d
+			}
+			// Banks send Retry-After: 86400 when they mean "come back
+			// tomorrow" — sleeping that out hijacks the whole run. Beyond
+			// the budget, bail; the next scheduled sync retries.
+			if wait > maxRetryWait {
+				return fmt.Errorf("rate limited (429) on %s: retry-after %v exceeds %v budget; aborting", f.Name, wait, maxRetryWait)
 			}
 			r.logf("429 rate limited; sleeping %v", wait)
 			select {

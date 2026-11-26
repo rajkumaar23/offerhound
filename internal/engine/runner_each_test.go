@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/rajkumaar23/offerhound/internal/config"
 )
@@ -66,5 +68,24 @@ func TestCompleteFalseWhenNoOffers(t *testing.T) {
 	}
 	if res := r.Run(context.Background()); res.Complete {
 		t.Fatal("offer-less run must not be flagged complete")
+	}
+}
+
+func TestRateLimitFailFastOnHugeRetryAfter(t *testing.T) {
+	r := &Runner{
+		Bank: &config.Bank{ID: "t", BaseURL: "https://example.test",
+			Offers: []config.Step{{FetchAPI: &config.FetchAPISpec{URL: "/x", Name: "x"}}}},
+		Browser: &fakeBrowser{body: "{}", status: 429, retryAfter: "86400"},
+	}
+	start := time.Now()
+	res := r.Run(context.Background())
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("huge Retry-After blocked the run for %v", elapsed)
+	}
+	if res.Complete {
+		t.Fatal("429-aborted step must not be complete")
+	}
+	if len(res.SkippedLog) == 0 || !strings.Contains(res.SkippedLog[0], "retry-after") {
+		t.Fatalf("want retry-after in skipped log, got %v", res.SkippedLog)
 	}
 }
