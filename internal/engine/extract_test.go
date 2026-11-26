@@ -79,3 +79,22 @@ func TestRenderTemplate(t *testing.T) {
 		t.Fatalf("got %q", out)
 	}
 }
+
+func TestGetArrObjectWildcard(t *testing.T) {
+	doc := []byte(`{"modules":{"pl":{"TOK1":{"account_key":"A"},"TOK2":{"account_key":"B"}}}}`)
+	got := getArr(doc, "modules.pl.*")
+	if !got.IsArray() || len(got.Array()) != 2 {
+		t.Fatalf("object wildcard must yield values array, got %s", got.Raw)
+	}
+	if got.Array()[0].Get("account_key").Str == "" {
+		t.Fatalf("wildcard values lost their fields: %s", got.Raw)
+	}
+	// arrays still resolve normally, and a scalar parent stays non-array
+	if a := getArr(doc, "modules.pl.TOK1"); a.IsArray() {
+		t.Fatal("object without .* must stay non-array")
+	}
+	arr := []byte(`{"d":{"l":[1,2]}}`)
+	if a := getArr(arr, "d.l"); !a.IsArray() || len(a.Array()) != 2 {
+		t.Fatalf("plain array path broken: %s", a.Raw)
+	}
+}

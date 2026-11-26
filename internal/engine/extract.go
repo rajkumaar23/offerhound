@@ -193,12 +193,28 @@ func cleanPath(p string) string {
 
 // getArr resolves a (possibly root) array path. gjson's Get has no
 // wildcard-path support, so "data[*]" collapses to "data" and "$[*]"/""
-// resolves to the document root.
+// resolves to the document root. A trailing ".*" additionally accepts an
+// OBJECT at the parent path and returns its values as an array — gjson
+// wildcards never do that (verified: "obj.*", "obj.#", "obj.*.k" all fail
+// to yield arrays), and map-shaped collections like Amex' productsList are
+// common inside hydration blobs.
 func getArr(doc []byte, path string) gjson.Result {
-	if p := cleanPath(path); p != "" {
-		return gjson.GetBytes(doc, p)
+	p := cleanPath(path)
+	if p == "" {
+		return gjson.ParseBytes(doc)
 	}
-	return gjson.ParseBytes(doc)
+	r := gjson.GetBytes(doc, p)
+	if !r.IsArray() && strings.HasSuffix(p, ".*") {
+		if obj := gjson.GetBytes(doc, strings.TrimSuffix(p, ".*")); obj.IsObject() {
+			var vals []string
+			obj.ForEach(func(_, v gjson.Result) bool {
+				vals = append(vals, v.Raw)
+				return true
+			})
+			return gjson.Parse("[" + strings.Join(vals, ",") + "]")
+		}
+	}
+	return r
 }
 
 func truncate(s string, n int) string {
