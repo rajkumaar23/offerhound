@@ -205,7 +205,14 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 }
 
 func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string) (body string, status int, retryAfter string, err error) {
-	h, _ := json.Marshal(headers)
+	// An empty record, never null: bank pages instrument window.fetch
+	// (Datadog RUM on capitaloneoffers.com) and the wrapper type-checks
+	// headers, throwing TypeError on null. Pinned by TestFetchExpression.
+	h := "{}"
+	if len(headers) > 0 {
+		b, _ := json.Marshal(headers)
+		h = string(b)
+	}
 	expr := fmt.Sprintf(`(async () => {
 		const r = await fetch(%s, {credentials: 'include', headers: %s});
 		const t = await r.text();
