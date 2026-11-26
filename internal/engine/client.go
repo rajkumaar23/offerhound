@@ -24,10 +24,21 @@ type Client struct {
 	HTTP  *http.Client
 }
 
-// NewClient builds a client with sane timeouts.
+// NewClient builds a client with sane timeouts. The write token never
+// travels beyond the home host: on any cross-host redirect it is stripped
+// (Go forwards custom headers across redirects otherwise).
 func NewClient(base, token string) *Client {
-	return &Client{Base: strings.TrimSuffix(base, "/"), Token: token,
-		HTTP: &http.Client{Timeout: 60 * time.Second}}
+	hc := &http.Client{Timeout: 60 * time.Second}
+	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+			req.Header.Del("X-Offerhound-Token")
+		}
+		if len(via) >= 5 {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	return &Client{Base: strings.TrimSuffix(base, "/"), Token: token, HTTP: hc}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {

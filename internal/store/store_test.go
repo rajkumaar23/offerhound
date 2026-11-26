@@ -137,7 +137,10 @@ func TestHumanRoundTrip(t *testing.T) {
 	if other, _ := s.PendingHuman("bob"); len(other) != 0 {
 		t.Fatalf("human prompts must not cross wallets: %+v", other)
 	}
-	ok, err := s.AnswerHuman(id, "424242")
+	if ok, _ := s.AnswerHuman(id, "eve", "111111"); ok {
+		t.Fatal("foreign user must not answer another wallet's prompt")
+	}
+	ok, err := s.AnswerHuman(id, "amy", "424242")
 	if err != nil || !ok {
 		t.Fatalf("answer: %v %v", ok, err)
 	}
@@ -145,7 +148,7 @@ func TestHumanRoundTrip(t *testing.T) {
 	if err != nil || got != "424242" {
 		t.Fatalf("wait: %q %v", got, err)
 	}
-	if ok, _ := s.AnswerHuman(id, "000000"); ok {
+	if ok, _ := s.AnswerHuman(id, "amy", "000000"); ok {
 		t.Fatal("double answer should be rejected")
 	}
 	answers, _ := s.AnswersFor([]int64{id})

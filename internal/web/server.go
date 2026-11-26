@@ -55,8 +55,14 @@ func New(s *store.Store, token string) *Server {
 
 // NewWithHash builds a server from a pre-computed hex SHA-256 token hash,
 // so the plaintext token never touches the server's config or memory.
+// A non-empty-but-whitespace hash is operator error, not open mode: fail
+// closed so writes can never slip through unauthenticated.
 func NewWithHash(s *store.Store, tokenHash string) *Server {
-	return &Server{Store: s, tokenHash: strings.TrimSpace(tokenHash)}
+	trimmed := strings.TrimSpace(tokenHash)
+	if trimmed == "" && tokenHash != "" {
+		trimmed = "invalid-whitespace-input" // matches no token, ever
+	}
+	return &Server{Store: s, tokenHash: trimmed}
 }
 
 // Handler returns the routed handler (usable in httptest).
@@ -142,6 +148,9 @@ func jsonOut(w http.ResponseWriter, v any) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	// Bound every JSON body: unauthenticated endpoints must not let a
+	// client make the server allocate freely.
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return false
@@ -300,17 +309,24 @@ func (sv *Server) apiHumanAnswers(w http.ResponseWriter, r *http.Request) {
 // human already possesses; worst abuse is burning a pending prompt).
 func (sv *Server) apiHumanAnswer(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	var body struct{ Answer string }
+	var body struct {
+		Answer string `json:"answer"`
+		User   string `json:"user"`
+	}
 	if !decode(w, r, &body) {
 		return
 	}
-	ok, err := sv.Store.AnswerHuman(id, body.Answer)
+	if strings.TrimSpace(body.User) == "" {
+		http.Error(w, `{"error":"user required"}`, http.StatusBadRequest)
+		return
+	}
+	ok, err := sv.Store.AnswerHuman(id, body.User, body.Answer)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	if !ok {
-		http.Error(w, "already resolved", http.StatusGone)
+		http.Error(w, "not found or already resolved", http.StatusGone)
 		return
 	}
 	jsonOut(w, map[string]any{"ok": true})

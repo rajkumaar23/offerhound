@@ -13,8 +13,18 @@ import (
 	"strings"
 )
 
-// Decode parses a flat-array devalue payload into plain Go values
-// (map[string]any / []any / primitives). The top-level value is element 0.
+// decoder rebuilds the flat-array graph. Memoizing resolved indices keeps a
+// DAG (many references to one entry) linear instead of exponential, and the
+// node budget bounds hostile payloads outright.
+type decoder struct {
+	arr      []any
+	visiting []bool
+	memo     map[int]any
+	budget   int
+}
+
+const maxExpandedNodes = 1_000_000
+
 func Decode(raw []byte) (any, error) {
 	var arr []any
 	if err := json.Unmarshal(raw, &arr); err != nil {
@@ -23,20 +33,37 @@ func Decode(raw []byte) (any, error) {
 	if len(arr) == 0 {
 		return nil, fmt.Errorf("devalue: empty payload")
 	}
-	return resolve(arr, 0, make([]bool, len(arr)))
+	d := &decoder{arr: arr, visiting: make([]bool, len(arr)), memo: map[int]any{}, budget: maxExpandedNodes}
+	return d.resolve(0)
 }
 
-func resolve(arr []any, i int, visiting []bool) (any, error) {
-	if i < 0 || i >= len(arr) {
+func (d *decoder) resolve(i int) (any, error) {
+	if v, ok := d.memo[i]; ok {
+		return v, nil
+	}
+	if i < 0 || i >= len(d.arr) {
 		return nil, fmt.Errorf("devalue: index %d out of range", i)
 	}
-	if visiting[i] { // cycles are not expected; fail instead of looping
+	if d.visiting[i] { // cycles are not expected; fail instead of looping
 		return nil, fmt.Errorf("devalue: reference cycle at %d", i)
 	}
-	visiting[i] = true
-	defer func() { visiting[i] = false }()
+	if d.budget <= 0 {
+		return nil, fmt.Errorf("devalue: expansion budget (%d nodes) exhausted", maxExpandedNodes)
+	}
+	d.budget--
+	d.visiting[i] = true
+	defer func() { d.visiting[i] = false }()
 
-	switch v := arr[i].(type) {
+	out, err := d.expand(i)
+	if err != nil {
+		return nil, err
+	}
+	d.memo[i] = out
+	return out, nil
+}
+
+func (d *decoder) expand(i int) (any, error) {
+	switch v := d.arr[i].(type) {
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for k, w := range v {
@@ -44,7 +71,7 @@ func resolve(arr []any, i int, visiting []bool) (any, error) {
 			if err != nil {
 				return nil, fmt.Errorf("devalue: key at %d: %w", i, err)
 			}
-			keyVal, err := resolve(arr, key, visiting)
+			keyVal, err := d.resolve(key)
 			if err != nil {
 				return nil, err
 			}
@@ -52,7 +79,7 @@ func resolve(arr []any, i int, visiting []bool) (any, error) {
 			if err != nil {
 				return nil, fmt.Errorf("devalue: value at %d[%s]: %w", i, k, err)
 			}
-			val, err := resolve(arr, valRef, visiting)
+			val, err := d.resolve(valRef)
 			if err != nil {
 				return nil, err
 			}
@@ -66,7 +93,7 @@ func resolve(arr []any, i int, visiting []bool) (any, error) {
 			if err != nil {
 				return nil, fmt.Errorf("devalue: list at %d: %w", i, err)
 			}
-			elem, err := resolve(arr, idx, visiting)
+			elem, err := d.resolve(idx)
 			if err != nil {
 				return nil, err
 			}

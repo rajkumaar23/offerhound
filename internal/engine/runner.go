@@ -229,6 +229,10 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 	}
 }
 
+func escapeQuotes(s string) string {
+	return strings.ReplaceAll(s, "'", `\u0027`)
+}
+
 func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string) (body string, status int, retryAfter string, err error) {
 	// An empty record, never null: bank pages instrument window.fetch
 	// (a RUM vendor wraps fetch on one major issuer portal) and the wrapper type-checks
@@ -245,11 +249,15 @@ func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("marshal url: %w", err)
 	}
+	// Single quotes are forced to \u0027 even though JSON permits them raw:
+	// the literal lands inside evaluated JS, and quote-shape conservatism
+	// there is cheap. (Structural JSON quotes are never affected — only
+	// bytes inside already-escaped strings.)
 	expr := fmt.Sprintf(`(async () => {
 		const r = await fetch(%s, {credentials: 'include', headers: %s});
 		const t = await r.text();
 		return JSON.stringify({status: r.status, retryAfter: r.headers.get('retry-after') || '', body: t});
-	})()`, string(uJSON), string(h))
+	})()`, escapeQuotes(string(uJSON)), escapeQuotes(h))
 	raw, err := r.Browser.EvaluateJSON(ctx, expr)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("evaluate fetch (%s): %w", u, err)

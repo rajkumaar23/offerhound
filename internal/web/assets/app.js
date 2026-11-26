@@ -21,6 +21,14 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+function safeURL(u) {
+  // href injection guard: esc() does not stop javascript:/data: schemes.
+  try {
+    const x = new URL(u, location.href);
+    return x.protocol === "https:" || x.protocol === "http:" ? x.href : "";
+  } catch (e) { return ""; }
+}
+
 function daysLeft(iso) {
   if (!iso) return null;
   return Math.floor((new Date(iso + "T23:59:59Z") - Date.now()) / 86400000);
@@ -122,8 +130,8 @@ function openSheet(g) {
     <div class="sub">${esc(g.bank)}${g.channel ? " · " + esc(g.channel) : ""}</div>
     ${g.description ? `<h3>Description</h3><div class="notes">${esc(g.description)}</div>` : ""}
     <h3>On your cards (${g.cards.length})</h3>${perCard}
-    ${g.cards.map((c) => c.termsUrl).filter(Boolean).length ? `<h3>Terms</h3><a href="${esc(g.cards.map((c) => c.termsUrl).filter(Boolean)[0])}" target="_blank" rel="noopener">offer terms ↗</a>` : ""}
-    ${g.cards.map((c) => c.detailUrl).filter(Boolean).length ? `<h3>At the bank</h3><a href="${esc(g.cards.map((c) => c.detailUrl).filter(Boolean)[0])}" target="_blank" rel="noopener">open the issuer's page ↗</a>` : ""}`;
+    ${g.cards.map((c) => c.termsUrl).filter(Boolean).map(safeURL).filter(Boolean).length ? `<h3>Terms</h3><a href="${g.cards.map((c) => c.termsUrl).filter(Boolean).map(safeURL).filter(Boolean)[0]}" target="_blank" rel="noopener">offer terms ↗</a>` : ""}
+    ${g.cards.map((c) => c.detailUrl).filter(Boolean).map(safeURL).filter(Boolean).length ? `<h3>At the bank</h3><a href="${g.cards.map((c) => c.detailUrl).filter(Boolean).map(safeURL).filter(Boolean)[0]}" target="_blank" rel="noopener">open the issuer's page ↗</a>` : ""}`;
   $("#sheet").classList.remove("hidden");
 }
 
@@ -193,7 +201,7 @@ function showHuman(r) {
       const res = await fetch(`/api/human/${r.id}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answer }),
+        body: JSON.stringify({ answer, user: r.user }),
       });
       if (!res.ok) throw new Error(String(res.status));
       $("#humanSheet").classList.add("hidden");

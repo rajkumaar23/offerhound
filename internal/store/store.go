@@ -57,6 +57,9 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// migrate() has created the file by now; tighten it to owner-only
+	// (sqlite creates with the umask default, often 0644/0666).
+	_ = os.Chmod(path, 0o600)
 	return s, nil
 }
 
@@ -440,10 +443,12 @@ func (s *Store) PendingHuman(user string) ([]HumanRequest, error) {
 	return out, rows.Err()
 }
 
-// AnswerHuman records a human's answer. Returns false if already resolved.
-func (s *Store) AnswerHuman(id int64, answer string) (bool, error) {
+// AnswerHuman records a human's answer. Ownership is enforced: the answer
+// only lands for the user the request was created for. Returns false when
+// the id is unknown, resolved, or belongs to another user.
+func (s *Store) AnswerHuman(id int64, user, answer string) (bool, error) {
 	res, err := s.db.Exec(`UPDATE human_requests SET state='answered', answer=?, responded=?
-		WHERE id=? AND state='pending'`, answer, now(), id)
+		WHERE id=? AND user=? AND state='pending'`, answer, now(), id, userSafe(user))
 	if err != nil {
 		return false, err
 	}

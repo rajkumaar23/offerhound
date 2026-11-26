@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestDecodeFlatArray(t *testing.T) {
@@ -30,5 +31,31 @@ func TestDecodeFlatArray(t *testing.T) {
 func TestRejectNonArray(t *testing.T) {
 	if _, err := Decode([]byte(`{"a":1}`)); err == nil {
 		t.Fatal("expected error for object payload")
+	}
+}
+
+func TestDecodeDAGNotExponential(t *testing.T) {
+	// arr[0]=[1,1]; each arr[k]=[k+1,k+1] for k<n; arr[n]=[]. Without
+	// memoization resolving index 0 costs 2^n node visits; memoized it is
+	// linear. n=26 would take forever otherwise.
+	const n = 26
+	arr := make([]any, n+1)
+	for k := 0; k < n; k++ {
+		arr[k] = []any{float64(k + 1), float64(k + 1)}
+	}
+	arr[n] = []any{}
+	raw, _ := json.Marshal(arr)
+	done := make(chan error, 1)
+	go func() {
+		_, err := Decode(raw)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("DAG expansion did not complete (missing memoization)")
 	}
 }

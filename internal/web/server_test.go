@@ -146,9 +146,14 @@ func TestHumanPromptNoScreenshots(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// the human on the phone has no token — answer post stays open
+	// the human on the phone has no token — answer post stays open but is
+	// ownership-scoped: wrong user must not resolve someone else's prompt
 	if resp := post(t, hs.URL+"/api/human/"+itoa(asked.ID)+"/answer", "",
-		`{"answer":"424242"}`); resp.StatusCode != 200 {
+		`{"answer":"999999","user":"eve"}`); resp.StatusCode != 410 {
+		t.Fatalf("foreign-user answer must be refused, got %d", resp.StatusCode)
+	}
+	if resp := post(t, hs.URL+"/api/human/"+itoa(asked.ID)+"/answer", "",
+		`{"answer":"424242","user":"amy"}`); resp.StatusCode != 200 {
 		t.Fatalf("open answer post: %d", resp.StatusCode)
 	}
 
@@ -173,4 +178,26 @@ func jsonNum(i int64) string {
 func mustRead(resp *http.Response) string {
 	b, _ := io.ReadAll(resp.Body)
 	return string(b)
+}
+
+func TestWhitespaceHashFailsClosed(t *testing.T) {
+	s := newTestStore(t)
+	hs := httptest.NewServer(NewWithHash(s, "   ").Handler())
+	defer hs.Close()
+	// operator handed us whitespace: NOT open mode — writes must 401 even
+	// with any plaintext token attempt.
+	if resp := post(t, hs.URL+"/api/ingest", "anything",
+		`{"user":"bob","bank":"b","complete":true,"offers":[{"id":"x","merchant":"M","rewardText":"5%","status":"eligible"}]}`); resp.StatusCode != 401 {
+		t.Fatalf("whitespace hash must fail closed, got %d", resp.StatusCode)
+	}
+}
+
+func TestOversizedBodyRejected(t *testing.T) {
+	s := newTestStore(t)
+	hs := httptest.NewServer(New(s, "tok123").Handler())
+	defer hs.Close()
+	resp := post(t, hs.URL+"/api/human/1/answer", "", `{"answer":"`+strings.Repeat("9", 3<<20)+`","user":"amy"}`)
+	if resp.StatusCode != 400 {
+		t.Fatalf("3MB body must be rejected at the reader, got %d", resp.StatusCode)
+	}
 }

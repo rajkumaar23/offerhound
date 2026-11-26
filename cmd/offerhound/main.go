@@ -58,7 +58,7 @@ func cmdInit() *cobra.Command {
 		Use:   "init",
 		Short: "Create the data directory and a serve token",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := os.MkdirAll(flagConfigs, 0o755); err != nil {
+			if err := os.MkdirAll(flagConfigs, 0o700); err != nil {
 				return err
 			}
 			token, err := store.NewToken()
@@ -67,7 +67,7 @@ func cmdInit() *cobra.Command {
 			}
 			tokenPath := filepath.Join(filepath.Dir(flagDB), "token")
 			if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
-				if err := os.MkdirAll(filepath.Dir(flagDB), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Dir(flagDB), 0o700); err != nil {
 					return err
 				}
 				if err := os.WriteFile(tokenPath, []byte(token), 0o600); err != nil {
