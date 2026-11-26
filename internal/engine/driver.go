@@ -183,7 +183,8 @@ func (b *cdpBrowser) Fill(ctx context.Context, sel, jsPath, value string) error 
 	}
 	if jsPath == "" {
 		// Real form field: type like a person. Instant .value= writes are a
-		// classic bot tell (Amex challenges fills that land too fast), so
+		// classic bot tell (behavioral bot filters challenge fills that
+		// land too fast), so
 		// focus + clear via JS, then per-rune CDP insertText with jittered
 		// pauses. Missing element stays a silent no-op (flows rely on it).
 		return b.typeInto(ctx, sel, value)
@@ -212,6 +213,7 @@ func (b *cdpBrowser) typeInto(ctx context.Context, sel, value string) error {
 		if (!el) return 'missing';
 		el.scrollIntoView({block: 'center'});
 		el.focus();
+		if (document.activeElement !== el) return 'unfocused';
 		const setter = Object.getOwnPropertyDescriptor(
 			el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
 			'value').set;
@@ -220,7 +222,10 @@ func (b *cdpBrowser) typeInto(ctx context.Context, sel, value string) error {
 		return 'ok';
 	})()`, quote(sel))
 	res, err := b.EvaluateJSON(ctx, focus)
-	if err != nil || res == `"missing"` {
+	// Type ONLY when focus is provably ours: Input.insertText lands in
+	// whatever element holds focus, so a stale selector must never type a
+	// password into the username box. Anything but 'ok' => silent no-op.
+	if err != nil || res != `"ok"` {
 		return err
 	}
 	humanPause(350, 800) // "read the page" before touching the field
