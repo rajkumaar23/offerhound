@@ -151,6 +151,7 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 			return err
 		}
 		if status == 429 {
+			lim.penalize() // slow every subsequent fetch, not just this retry
 			wait := 30 * time.Second
 			if d, e := time.ParseDuration(retryAfter + "s"); e == nil {
 				wait = d
@@ -178,6 +179,7 @@ func (r *Runner) fetchExtract(ctx context.Context, f *config.FetchAPISpec, vars 
 		if status < 200 || status >= 300 {
 			return fmt.Errorf("fetchApi %s: status %d", f.Name, status)
 		}
+		lim.onSuccess()
 		decodedBody, derr := decodeBody(body, f.Decode, f.Devalue)
 		if derr != nil {
 			return fmt.Errorf("decode (%s): %w", f.Name, derr)
@@ -450,10 +452,12 @@ func renderTemplate(tmpl string, vars map[string]any) (string, error) {
 
 // limiter enforces per-run request budget + minimum pacing.
 type limiter struct {
-	max   int
-	used  int
-	delay time.Duration
-	last  time.Time
+	max      int
+	used     int
+	base     time.Duration
+	delay    time.Duration // current pacing; doubles on 429, decays back on success
+	last     time.Time
+	okStreak int
 }
 
 func newLimiter(rl config.RateLimit) *limiter {
@@ -464,6 +468,7 @@ func newLimiter(rl config.RateLimit) *limiter {
 	if l.delay < 500*time.Millisecond {
 		l.delay = 500 * time.Millisecond
 	}
+	l.base = l.delay
 	return l
 }
 
@@ -477,4 +482,31 @@ func (l *limiter) acquire() error {
 	l.used++
 	l.last = time.Now()
 	return nil
+}
+
+// penalize slows ALL subsequent fetches after a 429: the portals throttle
+// per session/IP, so hammering at constant pace just burns budget on
+// failures (observed on capitaloneoffers under Black Friday load — even
+// the site's own UI 429s).
+func (l *limiter) penalize() {
+	l.okStreak = 0
+	const cap = 30 * time.Second
+	if l.delay < cap {
+		l.delay *= 2
+		if l.delay > cap {
+			l.delay = cap
+		}
+	}
+}
+
+// onSuccess lets pacing recover once the portal is happy again.
+func (l *limiter) onSuccess() {
+	l.okStreak++
+	if l.okStreak >= 40 && l.delay > l.base {
+		l.delay /= 2
+		if l.delay < l.base {
+			l.delay = l.base
+		}
+		l.okStreak = 0
+	}
 }

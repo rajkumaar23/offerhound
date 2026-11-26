@@ -41,10 +41,14 @@ func (r *Runner) enrichDetails(ctx context.Context, f *config.FetchAPISpec, vars
 		}
 		body, status, retryAfter, err := r.fetch(ctx, u, f.Detail.Headers)
 		if status == 429 {
+			lim.penalize() // shared session quota: a 429 here means slow down everywhere
 			// one polite retry — the portals throttle bursty detail callers
 			wait := 15 * time.Second
 			if d, e := time.ParseDuration(retryAfter + "s"); e == nil && d > 0 {
 				wait = d
+			}
+			if wait > maxRetryWait {
+				wait = maxRetryWait
 			}
 			select {
 			case <-ctx.Done():
@@ -57,6 +61,7 @@ func (r *Runner) enrichDetails(ctx context.Context, f *config.FetchAPISpec, vars
 			r.logf("detail fetch skipped (%s): status=%d err=%v", id, status, err)
 			continue
 		}
+		lim.onSuccess()
 		doc, derr := decodeBody(body, f.Detail.Decode, false)
 		if derr != nil {
 			r.logf("detail decode skipped (%s): %v", id, derr)
