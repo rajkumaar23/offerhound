@@ -154,8 +154,16 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 	}
 	defer br.Close()
 
-	r := &engine.Runner{Bank: b, Browser: br, Log: os.Stderr,
-		Gate: &engine.StoreGate{Store: st, User: flagUser}}
+	var gate engine.Gate = &engine.StoreGate{Store: st, User: flagUser}
+	var client *engine.Client
+	if flagServer != "" {
+		// Split mode: prompts must relay to the serve instance (the local
+		// store has no audience there) — same path the worker uses.
+		client = engine.NewClient(flagServer, flagToken)
+		gate = &engine.ServerGate{Client: client, User: flagUser}
+	}
+
+	r := &engine.Runner{Bank: b, Browser: br, Log: os.Stderr, Gate: gate}
 	res := r.Run(ctx)
 
 	if res.Err != nil {
@@ -171,8 +179,7 @@ func syncBank(ctx context.Context, b *config.Bank, worker string, verbose bool) 
 		return err
 	}
 	if flagServer != "" {
-		c := engine.NewClient(flagServer, flagToken)
-		if err := c.Ingest(ctx, engine.IngestReq{
+		if err := client.Ingest(ctx, engine.IngestReq{
 			User: flagUser, Bank: b.ID, Worker: worker, Complete: res.Complete, Note: note,
 			Cards: res.Cards, Offers: res.Offers,
 		}); err != nil {
