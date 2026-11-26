@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/rajkumaar23/offerhound/internal/config"
 	"github.com/rajkumaar23/offerhound/internal/offer"
@@ -38,7 +39,20 @@ func (r *Runner) enrichDetails(ctx context.Context, f *config.FetchAPISpec, vars
 		if err := lim.acquire(); err != nil {
 			return
 		}
-		body, status, _, err := r.fetch(ctx, u, f.Detail.Headers)
+		body, status, retryAfter, err := r.fetch(ctx, u, f.Detail.Headers)
+		if status == 429 {
+			// one polite retry — the portals throttle bursty detail callers
+			wait := 15 * time.Second
+			if d, e := time.ParseDuration(retryAfter + "s"); e == nil && d > 0 {
+				wait = d
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			body, status, _, err = r.fetch(ctx, u, f.Detail.Headers)
+		}
 		if err != nil || status < 200 || status >= 300 {
 			r.logf("detail fetch skipped (%s): status=%d err=%v", id, status, err)
 			continue
