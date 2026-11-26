@@ -236,11 +236,18 @@ func (r *Runner) fetch(ctx context.Context, u string, headers map[string]string)
 		b, _ := json.Marshal(headers)
 		h = string(b)
 	}
+	// The URL rides into the evaluated JS as a JSON string literal
+	// (json.Marshal is injection-proof embedding: quotes, backslashes,
+	// backticks and ${} all escape correctly) — never hand-quoted.
+	uJSON, err := json.Marshal(u)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("marshal url: %w", err)
+	}
 	expr := fmt.Sprintf(`(async () => {
 		const r = await fetch(%s, {credentials: 'include', headers: %s});
 		const t = await r.text();
 		return JSON.stringify({status: r.status, retryAfter: r.headers.get('retry-after') || '', body: t});
-	})()`, quote(u), string(h))
+	})()`, string(uJSON), string(h))
 	raw, err := r.Browser.EvaluateJSON(ctx, expr)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("evaluate fetch (%s): %w", u, err)

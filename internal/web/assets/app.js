@@ -29,9 +29,16 @@ function daysLeft(iso) {
 /* simpleicons.org slug heuristic: "Whole Foods In-Store" -> wholefoods.
    404s self-remove; unknown brands just show text. */
 function merchantIcon(m) {
-  const slug = String(m || "").toLowerCase()
-    .replace(/\b(in[- ]store|online|in[- ]app|store|official)\b/g, "")
-    .replace(/[^a-z0-9]/g, "");
+  // Strip noise words to a FIXPOINT: one pass can re-form a stripped word
+  // from surrounding characters ("inin-store" + leftover "nline" ->
+  // "online"), which is exactly what single-pass sanitization misses.
+  let slug = String(m || "").toLowerCase();
+  let prev;
+  do {
+    prev = slug;
+    slug = slug.replace(/\b(in[- ]store|online|in[- ]app|store|official)\b/g, "");
+  } while (slug !== prev);
+  slug = slug.replace(/[^a-z0-9]/g, "");
   if (!slug || slug.length < 3) return "";
   return `<img class="micon" src="https://cdn.simpleicons.org/${slug}" alt="" loading="lazy" onerror="this.remove()">`;
 }
